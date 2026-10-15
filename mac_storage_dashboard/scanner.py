@@ -24,10 +24,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HOME = Path.home()
-HERE = Path(__file__).resolve().parent
-DATA_JSON = HERE / "data.json"
-STATE_JSON = HERE / "scan_state.json"
-LOG_TXT = HERE / "scan_log.txt"
+HERE = Path(__file__).resolve().parent                          # code + web assets
+DATA_DIR = Path(os.environ.get("DASHBOARD_DATA_DIR") or HERE)   # scan output + state
+DATA_JSON = DATA_DIR / "data.json"
+STATE_JSON = DATA_DIR / "scan_state.json"
+LOG_TXT = DATA_DIR / "scan_log.txt"
 
 MIN_REC = 200 * 1024 * 1024       # minimum size for a recommendation item
 MIN_TREE = 150 * 1024 * 1024      # minimum size for a treemap child
@@ -685,6 +686,7 @@ def main() -> int:
     if "--check" in sys.argv:
         return doctor()
     try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         set_state("running", "Reading system info…", force=True)
         LOG_TXT.write_text("")
         log("scan started")

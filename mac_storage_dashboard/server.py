@@ -22,14 +22,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-try:  # scanner.py sits next to us; reused to rebuild insights after cleanup
+try:  # running as a script: scanner.py sits next to us; reused for insights
     import scanner as _scanner
-except Exception:  # pragma: no cover — the server still works without it
+except ImportError:  # running as a package module
+    try:
+        from . import scanner as _scanner
+    except Exception:  # pragma: no cover — the server still works without it
+        _scanner = None
+except Exception:  # pragma: no cover
     _scanner = None
 
-HERE = Path(__file__).resolve().parent
-DATA_JSON = HERE / "data.json"
-STATE_JSON = HERE / "scan_state.json"
+HERE = Path(__file__).resolve().parent                          # code + web assets
+DATA_DIR = Path(os.environ.get("DASHBOARD_DATA_DIR") or HERE)   # data.json, state, port file
+DATA_JSON = DATA_DIR / "data.json"
+STATE_JSON = DATA_DIR / "scan_state.json"
 SCANNER = HERE / "scanner.py"
 
 HOME = os.path.expanduser("~")
@@ -47,7 +53,7 @@ _cleanup_state: dict = {"running": False, "started_at": None, "finished_at": Non
 PROTECTED_EXACT = {
     "/", "/Users", "/Applications", "/Library", "/System", "/usr", "/etc", "/var",
     "/private", "/opt", "/bin", "/sbin", "/tmp", "/private/tmp", "/private/var",
-    HOME, str(HERE),
+    HOME, str(HERE), str(DATA_DIR),
 }
 
 
@@ -598,7 +604,7 @@ class Handler(BaseHTTPRequestHandler):
             def _stop():
                 time.sleep(0.4)  # let the response flush to the browser
                 try:
-                    os.remove(HERE / ".server.port")
+                    os.remove(DATA_DIR / ".server.port")
                 except OSError:
                     pass
                 os._exit(0)
@@ -660,7 +666,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def _serve_file(self, name: str, ctype: str):
-        f = HERE / name
+        f = DATA_JSON if name == "data.json" else HERE / name
         if not f.is_file():
             self._json({"error": f"{name} not found — run a scan first"}, 404)
             return
@@ -694,7 +700,7 @@ def running_port() -> int | None:
     """Port of an already-running dashboard server, if any."""
     candidates: list[int] = []
     try:
-        pf = HERE / ".server.port"
+        pf = DATA_DIR / ".server.port"
         if pf.is_file():
             candidates.append(int(pf.read_text().strip()))
     except (OSError, ValueError):
@@ -708,6 +714,7 @@ def running_port() -> int | None:
 
 
 def main():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     port_arg = sys.argv[1] if len(sys.argv) > 1 else None
     if port_arg:
         httpd = ThreadingHTTPServer(("127.0.0.1", int(port_arg)), Handler)
@@ -733,7 +740,7 @@ def main():
 
     # record the actual port so the app/launcher can find us
     try:
-        (HERE / ".server.port").write_text(str(port))
+        (DATA_DIR / ".server.port").write_text(str(port))
     except OSError:
         pass
 

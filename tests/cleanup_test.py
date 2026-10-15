@@ -66,7 +66,7 @@ def main():
     with open(OUT + "/sub/out.bin", "wb") as f:
         f.write(os.urandom(40_000))
 
-    shutil.copy(PROJ + "/server.py", T + "/server.py")
+    shutil.copy(PROJ + "/mac_storage_dashboard/server.py", T + "/server.py")
     # stub scanner: inert on import (the server imports it to rebuild insights),
     # only touches a marker when actually executed as a rescan
     with open(T + "/scanner.py", "w") as f:
