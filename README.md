@@ -5,9 +5,6 @@ reclaimable space into *safe to remove* vs *review first*, and lets you clean up
 **with full control** — either by copying a reviewed script, or with explicit,
 confirmed deletion right in the app.
 
-Inspired by a viral tweet where someone mapped their disk and found 97 GB of junk —
-this is that idea as a real tool that runs entirely on your machine.
-
 ![Category view](docs/category-view.png)
 
 ## Quick start
