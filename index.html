@@ -1013,8 +1013,15 @@ function pollCleanup(){
     if (failed)  msg += ` · ${failed} failed`;
     if (skipped) msg += ` · ${skipped} skipped`;
     toast(msg, 5200);
-    setBanner("Refreshing numbers…");
-    tick();
+    setRunning(false);
+    if (s.patched){
+      /* the server updated data.json in place — no rescan needed */
+      setBanner(null);
+      await loadData();
+    } else {
+      setBanner("Refreshing numbers…");
+      tick();
+    }
   }, 700);
 }
 
@@ -1029,6 +1036,7 @@ function applyData(d){
     "macOS " + (host.os || "?"),
     ram,
     `scanned ${ago(Date.parse(d.generated_at)/1000)} in ${d.scan_seconds}s`,
+    d.patched_at ? `updated ${ago(Date.parse(d.patched_at)/1000)} after cleanup` : "",
     d.stats ? `${fmtInt(d.stats.home_files)} files mapped` : ""
   ].filter(Boolean).join(" · ");
 

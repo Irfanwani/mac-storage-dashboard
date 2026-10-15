@@ -591,6 +591,92 @@ def build_specs():
 
 
 # ---------------------------------------------------------------------------
+# insights
+# ---------------------------------------------------------------------------
+
+def build_insights(recs: list[dict], safe_total: int, disk: dict, mem: dict,
+                   snaps: list, unaccounted: int) -> list[dict]:
+    """Dashboard insights derived from scan results (also reused after cleanup)."""
+    insights: list[dict] = []
+
+    def ins(sev, title, text, cmd=None):
+        insights.append({"severity": sev, "title": title, "text": text, "cmd": cmd})
+
+    pct = disk.get("percent_used", 0)
+    if pct >= 90:
+        ins("critical", "Your disk is nearly full",
+            f"{pct}% used — only {human(disk.get('free', 0))} free. "
+            f"{human(safe_total)} can be reclaimed immediately from the Safe list.")
+    elif pct >= 75:
+        ins("warning", "Your disk is filling up",
+            f"{pct}% used — {human(disk.get('free', 0))} free. "
+            f"{human(safe_total)} is safely reclaimable.")
+    top_safe = sorted([r for r in recs if r["tier"] == "safe"], key=lambda r: -r["size"])[:3]
+    if top_safe:
+        t = top_safe[0]
+        ins("info", f"Quick win: {t['title'].lower()}",
+            f"{t['title']} is holding {human(t['size'])} at {t['subtitle']}. {t['note']}",
+            (t["script"] or [None])[0])
+    trash = next((r for r in recs if r["id"] == "trash"), None)
+    if trash:
+        ins("warning", "Trash not emptied",
+            f"{human(trash['size'])} sitting in Trash — emptying is instant and irreversible-safe.", "rm -rf \"$HOME/.Trash\"/*")
+    dl = next((r for r in recs if r["id"] == "downloads_old"), None)
+    if dl:
+        ins("warning", "Downloads clutter",
+            f"{human(dl['size'])} of old installers & large files in ~/Downloads "
+            f"({len(dl['breakdown'])}+ items).", "open \"$HOME/Downloads\"")
+    nm = next((r for r in recs if r["id"] == "node_modules"), None)
+    if nm:
+        ins("info", "node_modules everywhere",
+            f"{human(nm['size'])} across your projects. {nm['note']}", None)
+    docker = next((r for r in recs if r["id"] == "docker"), None)
+    if docker:
+        ins("warning", "Docker is a heavyweight",
+            f"Docker's disk image holds {human(docker['size'])}. Run `docker system prune -a` "
+            f"and shrink it in Settings → Resources.", "docker system prune -a")
+    xc = [r for r in recs if r["id"].startswith("xcode") or r["id"] in ("sim_devices", "sys_sim_caches")]
+    if xc:
+        xc_sum = sum(r["size"] for r in xc)
+        xc_safe = sum(r["size"] for r in xc if r["tier"] == "safe")
+        ins("info", "Xcode tooling",
+            f"Xcode-related data is using {human(xc_sum)}; {human(xc_safe)} of it (DerivedData, "
+            f"DeviceSupport, simulator caches) regenerates itself.", None)
+    sa = next((r for r in recs if r["id"] == "system_assets"), None)
+    if sa:
+        ins("info", "macOS hides big stuff in system assets",
+            f"Siri voices, offline speech/translation models and dictionaries hold {human(sa['size'])} at "
+            f"{sa['subtitle']}. Trim unused Siri voices in System Settings → Siri & Spotlight.", None)
+        simrt = next((b for b in sa.get("breakdown", []) if "SimulatorRuntime" in b["name"]), None)
+        if simrt and simrt["size"] > 5 * 1024**3:
+            ins("warning", "iOS Simulator runtime is huge",
+                f"The installed iOS Simulator runtime alone holds {human(simrt['size'])}. "
+                f"If you don't run the Simulator, delete it and Xcode will still build for real devices.",
+                "xcrun simctl runtime list")
+    if snaps:
+        ins("warning", "Time Machine local snapshots",
+            f"{len(snaps)} local snapshot(s) exist and can consume tens of GB invisibly.",
+            "sudo tmutil deletelocalsnapshots /")
+    if unaccounted > 15 * 1024**3:
+        ins("info", "Not measured: " + human(unaccounted),
+            "System data, other users, macOS snapshots and virtual memory live outside the scanned "
+            "folders. For a full root map run: sudo du -x -d 1 /System/Volumes/Data",
+            "sudo du -x -d 1 /System/Volumes/Data 2>/dev/null | sort -rn | head -30")
+    mem_free = mem.get("free_percent", 0)
+    if mem.get("swap_used", 0) > 2 * 1024**3 or mem_free < 15:
+        ins("warning", "Memory pressure",
+            f"Only {mem_free}% RAM free; swap in use: {human(mem.get('swap_used', 0))}. "
+            f"Restart memory-hungry apps (browsers, Docker, Xcode).", None)
+    else:
+        ins("ok", "RAM is healthy",
+            f"{mem_free}% free, swap {human(mem.get('swap_used', 0))} of "
+            f"{human(mem.get('swap_total', 0))}. Disk, not RAM, is your constraint.", None)
+    sev_order = {"critical": 0, "warning": 1, "info": 2, "ok": 3}
+    insights.sort(key=lambda i: sev_order.get(i["severity"], 9))
+    return insights[:10]
+
+
+# ---------------------------------------------------------------------------
 # main scan
 # ---------------------------------------------------------------------------
 
@@ -1105,83 +1191,7 @@ def main() -> int:
                 break
 
         # ---- insights --------------------------------------------------------
-        insights: list[dict] = []
-
-        def ins(sev, title, text, cmd=None):
-            insights.append({"severity": sev, "title": title, "text": text, "cmd": cmd})
-
-        pct = disk.get("percent_used", 0)
-        if pct >= 90:
-            ins("critical", "Your disk is nearly full",
-                f"{pct}% used — only {human(disk.get('free', 0))} free. "
-                f"{human(safe_total)} can be reclaimed immediately from the Safe list.")
-        elif pct >= 75:
-            ins("warning", "Your disk is filling up",
-                f"{pct}% used — {human(disk.get('free', 0))} free. "
-                f"{human(safe_total)} is safely reclaimable.")
-        top_safe = sorted([r for r in recs if r["tier"] == "safe"], key=lambda r: -r["size"])[:3]
-        if top_safe:
-            t = top_safe[0]
-            ins("info", f"Quick win: {t['title'].lower()}",
-                f"{t['title']} is holding {human(t['size'])} at {t['subtitle']}. {t['note']}",
-                (t["script"] or [None])[0])
-        trash = next((r for r in recs if r["id"] == "trash"), None)
-        if trash:
-            ins("warning", "Trash not emptied",
-                f"{human(trash['size'])} sitting in Trash — emptying is instant and irreversible-safe.", "rm -rf \"$HOME/.Trash\"/*")
-        dl = next((r for r in recs if r["id"] == "downloads_old"), None)
-        if dl:
-            ins("warning", "Downloads clutter",
-                f"{human(dl['size'])} of old installers & large files in ~/Downloads "
-                f"({len(dl['breakdown'])}+ items).", "open \"$HOME/Downloads\"")
-        nm = next((r for r in recs if r["id"] == "node_modules"), None)
-        if nm:
-            ins("info", "node_modules everywhere",
-                f"{human(nm['size'])} across your projects. {nm['note']}", None)
-        docker = next((r for r in recs if r["id"] == "docker"), None)
-        if docker:
-            ins("warning", "Docker is a heavyweight",
-                f"Docker's disk image holds {human(docker['size'])}. Run `docker system prune -a` "
-                f"and shrink it in Settings → Resources.", "docker system prune -a")
-        xc = [r for r in recs if r["id"].startswith("xcode") or r["id"] in ("sim_devices", "sys_sim_caches")]
-        if xc:
-            xc_sum = sum(r["size"] for r in xc)
-            xc_safe = sum(r["size"] for r in xc if r["tier"] == "safe")
-            ins("info", "Xcode tooling",
-                f"Xcode-related data is using {human(xc_sum)}; {human(xc_safe)} of it (DerivedData, "
-                f"DeviceSupport, simulator caches) regenerates itself.", None)
-        sa = next((r for r in recs if r["id"] == "system_assets"), None)
-        if sa:
-            ins("info", "macOS hides big stuff in system assets",
-                f"Siri voices, offline speech/translation models and dictionaries hold {human(sa['size'])} at "
-                f"{sa['subtitle']}. Trim unused Siri voices in System Settings → Siri & Spotlight.", None)
-            simrt = next((b for b in sa.get("breakdown", []) if "SimulatorRuntime" in b["name"]), None)
-            if simrt and simrt["size"] > 5 * 1024**3:
-                ins("warning", "iOS Simulator runtime is huge",
-                    f"The installed iOS Simulator runtime alone holds {human(simrt['size'])}. "
-                    f"If you don't run the Simulator, delete it and Xcode will still build for real devices.",
-                    "xcrun simctl runtime list")
-        if snaps:
-            ins("warning", "Time Machine local snapshots",
-                f"{len(snaps)} local snapshot(s) exist and can consume tens of GB invisibly.",
-                "sudo tmutil deletelocalsnapshots /")
-        if unaccounted > 15 * 1024**3:
-            ins("info", "Not measured: " + human(unaccounted),
-                "System data, other users, macOS snapshots and virtual memory live outside the scanned "
-                "folders. For a full root map run: sudo du -x -d 1 /System/Volumes/Data",
-                "sudo du -x -d 1 /System/Volumes/Data 2>/dev/null | sort -rn | head -30")
-        mem_free = mem.get("free_percent", 0)
-        if mem.get("swap_used", 0) > 2 * 1024**3 or mem_free < 15:
-            ins("warning", "Memory pressure",
-                f"Only {mem_free}% RAM free; swap in use: {human(mem.get('swap_used', 0))}. "
-                f"Restart memory-hungry apps (browsers, Docker, Xcode).", None)
-        else:
-            ins("ok", "RAM is healthy",
-                f"{mem_free}% free, swap {human(mem.get('swap_used', 0))} of "
-                f"{human(mem.get('swap_total', 0))}. Disk, not RAM, is your constraint.", None)
-        sev_order = {"critical": 0, "warning": 1, "info": 2, "ok": 3}
-        insights.sort(key=lambda i: sev_order.get(i["severity"], 9))
-        insights = insights[:10]
+        insights = build_insights(recs, safe_total, disk, mem, snaps, unaccounted)
 
         data = {
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

@@ -17,9 +17,15 @@ import sys
 import threading
 import time
 import webbrowser
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+
+try:  # scanner.py sits next to us; reused to rebuild insights after cleanup
+    import scanner as _scanner
+except Exception:  # pragma: no cover — the server still works without it
+    _scanner = None
 
 HERE = Path(__file__).resolve().parent
 DATA_JSON = HERE / "data.json"
@@ -34,7 +40,8 @@ _proc_lock = threading.Lock()
 _cleanup_lock = threading.Lock()
 _cleanup_state: dict = {"running": False, "started_at": None, "finished_at": None,
                         "planned": 0, "done": 0, "freed": 0, "results": [],
-                        "skipped": [], "error": None, "scan_started": False}
+                        "skipped": [], "error": None, "patched": False,
+                        "scan_started": False}
 
 # paths we refuse to delete, ever
 PROTECTED_EXACT = {
@@ -204,7 +211,11 @@ def run_cleanup(ids: list[str]) -> None:
         _cleanup_state.update({"running": True, "started_at": time.time(),
                                "finished_at": None, "planned": 0, "done": 0,
                                "freed": 0, "results": [], "skipped": [],
-                               "error": None, "scan_started": False})
+                               "error": None, "patched": False, "scan_started": False})
+    try:
+        data_mtime_before = DATA_JSON.stat().st_mtime
+    except OSError:
+        data_mtime_before = None
     recs = _load_recs()
     plan: list[tuple[str, str]] = []   # (path, rec id)
     skipped: list[dict] = []
@@ -252,22 +263,234 @@ def run_cleanup(ids: list[str]) -> None:
                 _cleanup_state["results"].append({"id": rid, "path": path,
                                                   "freed": 0, "ok": False, "error": err})
 
+    # refresh the dashboard: apply the deletions to data.json directly …
+    patched = False
+    try:
+        with _cleanup_lock:
+            results_snapshot = list(_cleanup_state["results"])
+        patched = apply_cleanup_to_data(results_snapshot, data_mtime_before)
+    except Exception as exc:
+        with _cleanup_lock:
+            _cleanup_state["error"] = f"patch failed: {exc}"
+    with _cleanup_lock:
+        _cleanup_state["patched"] = patched
+    # … and only fall back to a slow, full rescan if that wasn't possible
+    if not patched:
+        try:
+            started = start_scan()
+            with _cleanup_lock:
+                _cleanup_state["scan_started"] = started
+        except Exception as exc:
+            with _cleanup_lock:
+                _cleanup_state["error"] = str(exc)
     with _cleanup_lock:
         _cleanup_state["running"] = False
         _cleanup_state["finished_at"] = time.time()
-    # refresh the dashboard with fresh numbers
-    try:
-        started = start_scan()
-        with _cleanup_lock:
-            _cleanup_state["scan_started"] = started
-    except Exception as exc:
-        with _cleanup_lock:
-            _cleanup_state["error"] = str(exc)
 
 
 def cleanup_status() -> dict:
     with _cleanup_lock:
         return dict(_cleanup_state)
+
+
+def _home_node(children: list, path: str):
+    """Deepest home-tree node whose path contains `path` (or None)."""
+    for n in children or []:
+        npth = n.get("path") or ""
+        if npth and (path == npth or path.startswith(npth + os.sep)):
+            deeper = _home_node(n.get("children") or [], path)
+            return deeper or n
+    return None
+
+
+def apply_cleanup_to_data(results: list[dict], data_mtime_before: float | None) -> bool:
+    """Apply just-finished deletions to data.json — no full rescan needed.
+
+    Subtracts the freed bytes from disk/totals/treemaps/insights and removes
+    the deleted items. Returns True when data.json reflects the deletions
+    (patched here, or a scan finished meanwhile that already includes them).
+    """
+    # a scan that landed while we were deleting already reflects reality
+    try:
+        if data_mtime_before is not None and DATA_JSON.stat().st_mtime != data_mtime_before:
+            return True
+    except OSError:
+        return False
+
+    try:
+        data = json.loads(DATA_JSON.read_text())
+    except Exception:
+        return False
+
+    # group successful deletions by item id
+    by_id: dict[str, dict] = {}
+    deleted_paths: list[str] = []
+    for r in results or []:
+        if not r.get("ok"):
+            continue
+        p = r.get("path") or ""
+        if not p:
+            continue
+        deleted_paths.append(p)
+        g = by_id.setdefault(str(r.get("id")), {"paths": [], "freed": 0})
+        g["paths"].append(p)
+        g["freed"] += int(r.get("freed") or 0)
+    if not deleted_paths:
+        return True  # nothing removed — nothing to patch
+
+    recs_lists = data.get("recommendations") or {}
+    rec_by_id: dict[str, tuple[str, dict]] = {}
+    for tier in ("safe", "review"):
+        for rec in recs_lists.get(tier, []):
+            rec_by_id[rec.get("id")] = (tier, rec)
+
+    # per-path bookkeeping (junk amounts keep the treemap hatching in sync)
+    del_rows: list[dict] = []
+    for r in results or []:
+        if not r.get("ok"):
+            continue
+        p = r.get("path") or ""
+        if not p:
+            continue
+        freed = int(r.get("freed") or 0)
+        rid = str(r.get("id"))
+        tier, rec = rec_by_id.get(rid, (None, None))
+        if rec is not None:
+            ss = rec.get("source_sizes") or {}
+            fallback = rec.get("size", 0) / max(1, len(rec.get("sources") or []))
+            amt = int(ss.get(p, fallback))
+        else:
+            amt = freed
+        del_rows.append({"rid": rid, "path": p, "freed": freed, "tier": tier,
+                         "amount": amt, "safe_amount": amt if tier == "safe" else 0})
+    freed_total = sum(x["freed"] for x in del_rows)
+
+    # recommendations + tier totals
+    remaining_ids: set[str] = set()
+    for tier in ("safe", "review"):
+        keep: list[dict] = []
+        for rec in recs_lists.get(tier, []):
+            rid = rec.get("id")
+            g = by_id.get(rid)
+            if not g:
+                keep.append(rec)
+                remaining_ids.add(rid)
+                continue
+            delset = set(g["paths"])
+            rec["sources"] = [p for p in (rec.get("sources") or []) if p not in delset]
+            ss = rec.get("source_sizes") or {}
+            rec["source_sizes"] = {p: v for p, v in ss.items() if p in rec["sources"]}
+            if rec["sources"]:
+                rec["size"] = (int(sum(rec["source_sizes"].values())) if rec["source_sizes"]
+                               else max(0, int(rec.get("size", 0)) - g["freed"]))
+                if rec["size"] > 0:
+                    keep.append(rec)
+                    remaining_ids.add(rid)
+            # items left with nothing fall out of the list entirely
+        recs_lists[tier] = keep
+        totals = data.get("totals") or {}
+        totals[tier] = sum(int(r.get("size", 0)) for r in keep)  # stay consistent with the item list
+        data["totals"] = totals
+    data["recommendations"] = recs_lists
+
+    # cleanup treemap (estimate-based like the items, so subtract the item amounts)
+    amt_by_id: dict[str, int] = {}
+    for row in del_rows:
+        amt_by_id[row["rid"]] = amt_by_id.get(row["rid"], 0) + row["amount"]
+    for node in data.get("cleanup_nodes") or []:
+        items = node.get("items") or []
+        for rid in list(items):
+            amt = amt_by_id.get(rid, 0)
+            if not amt:
+                continue
+            node["size"] = max(0, int(node.get("size", 0)) - amt)
+            tier = rec_by_id.get(rid, (None, None))[0]
+            if tier:
+                node[tier] = max(0, int(node.get(tier, 0)) - amt)
+        node["items"] = [i for i in items if i in remaining_ids]
+        node["tier"] = "safe" if int(node.get("safe", 0)) >= int(node.get("review", 0)) else "review"
+    data["cleanup_nodes"] = sorted(
+        [n for n in (data.get("cleanup_nodes") or []) if n["items"] and n["size"] > 0],
+        key=lambda n: -n["size"])
+
+    # home tree + outside listings (real sizes, so subtract the measured freed bytes)
+    home = data.get("home") or {}
+    outside = data.get("outside") or []
+    for row in del_rows:
+        p, freed = row["path"], row["freed"]
+        if not freed:
+            continue
+        if p == HOME or p.startswith(HOME + os.sep):
+            home["total"] = max(0, int(home.get("total", 0)) - freed)
+            node = _home_node(home.get("children") or [], p)
+            if node:
+                node["size"] = max(0, int(node.get("size", 0)) - freed)
+                node["junk"] = max(0, int(node.get("junk", 0)) - int(row["amount"]))
+                node["safe_junk"] = max(0, int(node.get("safe_junk", 0)) - int(row["safe_amount"]))
+        else:
+            for e in outside:
+                en = e.get("name") or ""
+                if en and (p == en or p.startswith(en + os.sep)):
+                    e["size"] = max(0, int(e.get("size", 0)) - freed)
+                    if p != en:
+                        seg = p[len(en):].lstrip(os.sep).split(os.sep)[0]
+                        for c in e.get("children") or []:
+                            if c.get("name") == seg:
+                                c["size"] = max(0, int(c.get("size", 0)) - freed)
+                                break
+                    break
+    data["home"] = home
+
+    # big files that are gone
+    data["big_files"] = [b for b in (data.get("big_files") or [])
+                         if not any(b.get("path") == p or (b.get("path") or "").startswith(p + os.sep)
+                                    for p in deleted_paths)]
+
+    # disk numbers: fresh filesystem state beats arithmetic
+    fresh = None
+    if _scanner is not None:
+        try:
+            fresh = _scanner.disk_info() or None
+        except Exception:
+            fresh = None
+    if fresh:
+        data["disk"] = fresh
+    elif data.get("disk"):
+        d = data["disk"]
+        d["used"] = max(0, int(d.get("used", 0)) - freed_total)
+        d["free"] = int(d.get("free", 0)) + freed_total
+        d["percent_used"] = round(d["used"] / d["total"] * 100) if d.get("total") else 0
+
+    # regenerate insights against the patched numbers
+    if _scanner is not None and hasattr(_scanner, "build_insights"):
+        try:
+            data["insights"] = _scanner.build_insights(
+                recs_lists.get("safe", []) + recs_lists.get("review", []),
+                sum(int(r.get("size", 0)) for r in recs_lists.get("safe", [])),
+                data.get("disk") or {}, data.get("memory") or {},
+                data.get("snapshots") or [], int(data.get("unaccounted") or 0))
+        except Exception:
+            pass
+
+    st = data.get("stats") or {}
+    st["rec_count"] = len(recs_lists.get("safe", [])) + len(recs_lists.get("review", []))
+    data["stats"] = st
+    data["patched_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    data["patched_freed"] = freed_total
+
+    try:
+        tmp = DATA_JSON.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1))
+        tmp.replace(DATA_JSON)
+    except OSError:
+        return False
+    if _scanner is not None:
+        try:
+            _scanner.log(f"cleanup applied to data.json: {_scanner.human(freed_total)} freed "
+                         f"across {len(deleted_paths)} path(s) — no rescan")
+        except Exception:
+            pass
+    return True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -394,6 +617,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/cleanup":
             if cleanup_status().get("running"):
                 self._json({"started": False, "reason": "cleanup already running"}, 409)
+                return
+            if scanner_running():
+                self._json({"started": False, "reason": "a scan is in progress — try again in a moment"}, 409)
                 return
             body = self._read_json()
             ids = body.get("ids")

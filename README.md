@@ -107,7 +107,9 @@ There are two ways to free space, and both are deliberate:
   - deletion requires an explicit confirmation with an **"I understand"** checkbox;
   - deleted items are **permanently removed** (not moved to Trash) — that's the point
     of freeing disk space; the confirmation dialog says so in plain words;
-  - after deleting, the app **rescans automatically** so you see fresh numbers.
+  - after deleting, the dashboard **updates instantly** — the server subtracts exactly
+    what was removed from the sizes, totals, treemaps and insights (no full rescan; a
+    rescan only happens if that in-place update isn't possible).
 
 ![Delete confirmation](docs/delete-confirm.png)
 
@@ -163,6 +165,7 @@ favicon.svg        tab icon (nested treemap); rendered into the app icon at buil
 svg2png.js         build-time helper: SVG → transparent PNG (used for the app icon)
 build_app.command  builds dist/Mac Storage Dashboard.app (recommended launcher — grant FDA to it)
 run.command        plain double-click launcher (runs in Terminal)
+tests/             sandbox integration test for the cleanup engine (python3 tests/cleanup_test.py)
 docs/              screenshots
 data.json          latest scan output (generated, gitignored)
 ```
