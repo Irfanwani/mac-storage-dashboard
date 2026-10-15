@@ -13,7 +13,7 @@ confirmed deletion right in the app.
 normal macOS app:
 
 ```bash
-./build_app.command        # creates dist/Mac Storage Dashboard.app
+./build_app.command        # creates dist/Mac Storage Dashboard.app (app icon == favicon)
 ```
 
 Double-click **Mac Storage Dashboard** — it starts the dashboard server in the
@@ -159,7 +159,8 @@ python3 server.py 9000        # …on a custom port
 scanner.py         single-pass disk walker → data.json (sizes, junk tiers, insights, permissions)
 server.py          localhost server (dashboard + /api/rescan + /api/cleanup + /api/shutdown + /api/open-settings)
 index.html         the dashboard UI (zero dependencies, works offline)
-favicon.svg        tab icon (nested treemap)
+favicon.svg        tab icon (nested treemap); rendered into the app icon at build time
+svg2png.js         build-time helper: SVG → transparent PNG (used for the app icon)
 build_app.command  builds dist/Mac Storage Dashboard.app (recommended launcher — grant FDA to it)
 run.command        plain double-click launcher (runs in Terminal)
 docs/              screenshots

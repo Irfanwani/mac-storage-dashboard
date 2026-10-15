@@ -68,6 +68,32 @@ mkdir -p dist
 osacompile -o "$APP" "$SCRIPT"
 rm -f "$SCRIPT"
 
+# app icon — rendered from favicon.svg (same mark as the web dashboard)
+if [ -f favicon.svg ]; then
+  ICON_TMP="$(mktemp -d -t mac-storage-dashboard-icon)"
+  if osascript -l JavaScript svg2png.js "$REPO/favicon.svg" "$ICON_TMP/icon-src.png" 1024 >/dev/null 2>&1 \
+     && [ -f "$ICON_TMP/icon-src.png" ]; then
+    mkdir -p "$ICON_TMP/AppIcon.iconset"
+    for s in 16 32 128 256 512; do
+      d=$((s * 2))
+      sips -z "$s" "$s" "$ICON_TMP/icon-src.png" --out "$ICON_TMP/AppIcon.iconset/icon_${s}x${s}.png" >/dev/null
+      sips -z "$d" "$d" "$ICON_TMP/icon-src.png" --out "$ICON_TMP/AppIcon.iconset/icon_${s}x${s}@2x.png" >/dev/null
+    done
+    if iconutil -c icns "$ICON_TMP/AppIcon.iconset" -o "$ICON_TMP/AppIcon.icns" 2>/dev/null; then
+      mkdir -p "$APP/Contents/Resources"
+      cp "$ICON_TMP/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+      # osacompile ships applet.icns; keep it in sync too
+      cp "$ICON_TMP/AppIcon.icns" "$APP/Contents/Resources/applet.icns"
+      echo "Icon: rendered from favicon.svg"
+    else
+      echo "Icon: could not assemble .icns (skipping)"
+    fi
+  else
+    echo "Icon: could not render favicon.svg (skipping)"
+  fi
+  rm -rf "$ICON_TMP"
+fi
+
 # friendlier identity in System Settings → Privacy & Security → Full Disk Access
 PB=/usr/libexec/PlistBuddy
 PLIST="$APP/Contents/Info.plist"
@@ -77,7 +103,15 @@ $PB -c "Set :CFBundleName Mac Storage Dashboard" "$PLIST" 2>/dev/null \
   || $PB -c "Add :CFBundleName string Mac Storage Dashboard" "$PLIST"
 $PB -c "Set :CFBundleShortVersionString 1.0.0" "$PLIST" 2>/dev/null \
   || $PB -c "Add :CFBundleShortVersionString string 1.0.0" "$PLIST"
+$PB -c "Delete :CFBundleIconFile" "$PLIST" 2>/dev/null || true
+$PB -c "Add :CFBundleIconFile string AppIcon" "$PLIST"
+# osacompile also sets CFBundleIconName (asset-catalog icon), which takes
+# precedence over CFBundleIconFile on modern macOS — drop it so ours is used.
+$PB -c "Delete :CFBundleIconName" "$PLIST" 2>/dev/null || true
 codesign --force -s - "$APP" 2>/dev/null || true
+touch "$APP"
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREG" ] && "$LSREG" -f "$APP" >/dev/null 2>&1 || true
 
 echo "Built: $APP"
 echo
