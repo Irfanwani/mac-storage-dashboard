@@ -1,0 +1,15 @@
+# scan output (machine-specific, generated locally)
+data.json
+scan_state.json
+scan_log.txt
+.server.port
+
+# python
+__pycache__/
+*.pyc
+
+# macos
+.DS_Store
+
+# built app bundle
+dist/

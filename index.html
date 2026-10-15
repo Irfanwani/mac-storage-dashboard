@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac Storage Dashboard</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root{
+    --bg:#f3f4f6; --card:#ffffff; --line:#e5e7eb; --ink:#111827; --ink2:#6b7280; --ink3:#9ca3af;
+    --green:#16a34a; --green-bg:#ecfdf3; --yellow:#b45309; --yellow-bg:#fef7e6;
+    --blue:#2563eb; --red:#dc2626; --red-bg:#fef2f2;
+    --c-code:#ced1f7; --c-docs:#fbdcc2; --c-media:#f9cfb8; --c-devtools:#e8e9eb;
+    --c-sdk:#ccefee; --c-ai:#f9c9d2; --c-caches:#d3e2fb; --c-apps:#e6e1f5; --c-other:#ececef;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html{-webkit-font-smoothing:antialiased}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); font-size:14px; line-height:1.45; padding:20px;
+  }
+  .wrap{max-width:1440px; margin:0 auto}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* ---------- top bar ---------- */
+  .topbar{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:14px}
+  .topbar h1{font-size:20px; font-weight:700; letter-spacing:-.02em; display:flex; align-items:center; gap:10px}
+  .topbar h1 .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#111827,#4b5563);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+  .meta{color:var(--ink2); font-size:12.5px; margin-top:2px}
+  .actions{display:flex; gap:8px; align-items:center}
+  .btn{
+    appearance:none; border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:8px 14px; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px; transition:.15s;
+  }
+  .btn:hover{background:#f9fafb}
+  .btn.dark{background:#111827; border-color:#111827; color:#fff}
+  .btn.dark:hover{background:#1f2937}
+  .btn:disabled{opacity:.55; cursor:default}
+  .btn .spin{width:13px;height:13px;border:2px solid rgba(0,0,0,.25);border-top-color:#111827;border-radius:50%;animation:spin .8s linear infinite;display:none}
+  .btn.running .spin{display:inline-block}
+  .btn.running .refresh{display:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- stats ---------- */
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 18px; box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .stat .lbl{font-size:12px; color:var(--ink2); font-weight:600; display:flex; align-items:center; gap:7px; margin-bottom:6px}
+  .stat .lbl .dot{width:8px;height:8px;border-radius:50%}
+  .dot.g{background:var(--green)} .dot.y{background:#eab308} .dot.b{background:#3b82f6} .dot.k{background:#9ca3af}
+  .stat .val{font-size:30px; font-weight:750; letter-spacing:-.03em; display:flex; align-items:baseline; gap:8px}
+  .stat .val .sub{font-size:13px; font-weight:600; color:var(--ink2)}
+  .stat .delta{font-size:12.5px; font-weight:700; color:var(--green)}
+  .stat .note{font-size:12px; color:var(--ink2); margin-top:2px}
+
+  /* ---------- layout ---------- */
+  .grid{display:grid; grid-template-columns:minmax(0,1fr) 390px; gap:12px; margin-bottom:14px; align-items:start}
+  .panel{background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .panel .head{padding:14px 18px 10px; display:flex; align-items:center; justify-content:space-between; gap:12px}
+  .panel .head h2{font-size:15px; font-weight:700}
+  .panel .head p{font-size:12.5px; color:var(--ink2); margin-top:1px}
+  .seg{display:flex; background:#f3f4f6; border:1px solid var(--line); border-radius:10px; padding:2px}
+  .seg button{border:0; background:transparent; padding:6px 13px; border-radius:8px; font-size:12.5px; font-weight:600; color:var(--ink2); cursor:pointer}
+  .seg button.on{background:#111827; color:#fff}
+
+  /* ---------- treemap ---------- */
+  .tmtoolbar{display:flex; align-items:center; gap:8px; padding:0 18px 10px; min-height:30px}
+  .crumb{font-size:12.5px; color:var(--ink2); display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+  .crumb button{border:0;background:none;color:var(--blue);font-weight:600;cursor:pointer;font-size:12.5px;padding:2px 1px}
+  .crumb button:hover{text-decoration:underline}
+  .tm{position:relative; margin:0 18px; height:620px; background:#fafafa; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none}
+  .tile{position:absolute; border-radius:7px; overflow:hidden; cursor:pointer; border:2px solid #fff; background:#e5e7eb}
+  .tile.hatch-safe{background:repeating-linear-gradient(135deg,#b7e3c3 0 2.5px,#fbfffb 2.5px 8px); border-color:#eaf7ee}
+  .tile.hatch-review{background:repeating-linear-gradient(135deg,#f0da96 0 2.5px,#fffef8 2.5px 8px); border-color:#fbf3d9}
+  .tile:hover{outline:2px solid #111827; outline-offset:-1px; z-index:5}
+  .tile .cap{padding:7px 9px; font-weight:650; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:-.01em}
+  .tile .sz{position:absolute; left:9px; bottom:7px; font-size:11.5px; font-weight:650; color:rgba(17,24,39,.62); white-space:nowrap}
+  .tile .junkdot{position:absolute; top:8px; right:8px; width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 0 2px rgba(255,255,255,.75)}
+  .tile .inner{position:absolute; inset:24px 3px 3px 3px}
+  .tile .inner .tile .cap{font-size:11px; padding:4px 6px}
+  .tile .inner .tile .sz{font-size:10px; left:6px; bottom:4px}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; padding:12px 18px 6px; font-size:12px; color:var(--ink2)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .legend i{width:11px;height:11px;border-radius:3.5px;display:inline-block}
+  .legend .hatch{background:repeating-linear-gradient(135deg,#b7e3c3 0 2px,#fff 2px 6px); border:1px solid #cbe8d4}
+  .legend .hatchy{background:repeating-linear-gradient(135deg,#f0da96 0 2px,#fff 2px 6px); border:1px solid #ecdcae}
+
+  /* ---------- tooltip ---------- */
+  #tip{position:fixed; z-index:60; background:#111827; color:#f9fafb; border-radius:9px; padding:9px 11px; font-size:12px; max-width:420px; pointer-events:none; display:none; box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  #tip .t-name{font-weight:700; margin-bottom:2px}
+  #tip .t-path{color:#9ca3af; font-size:11px; word-break:break-all; margin-bottom:4px}
+  #tip .t-row{display:flex; gap:10px; align-items:center}
+  #tip .t-size{font-weight:700}
+  #tip .badge{background:#065f46; color:#d1fae5; border-radius:5px; padding:1px 6px; font-size:10.5px; font-weight:700}
+  #tip .badge.y{background:#78350f; color:#fef3c7}
+  #tip .t-hint{color:#6b7280; font-size:10.5px; margin-top:4px}
+
+  /* ---------- recommendations ---------- */
+  .recs{display:flex; flex-direction:column; max-height:820px}
+  .recs .body{overflow-y:auto; padding:0 10px 8px; flex:1}
+  .rgroup{margin:6px 0}
+  .rgroup .ghead{display:flex; align-items:center; justify-content:space-between; padding:8px 8px 6px}
+  .pill{font-size:11px; font-weight:750; border-radius:6px; padding:3px 8px}
+  .pill.safe{background:var(--green-bg); color:var(--green)}
+  .pill.review{background:var(--yellow-bg); color:var(--yellow)}
+  .ghead .gsum{font-size:12px; color:var(--ink2); font-weight:650}
+  .ritem{border-radius:10px; padding:2px}
+  .ritem + .ritem{margin-top:1px}
+  .ritem.flash{animation:flash 1.2s ease 2}
+  @keyframes flash{0%,100%{background:transparent}35%{background:#fef3c7}}
+  .rrow{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; cursor:pointer}
+  .rrow:hover{background:#f9fafb}
+  .ck{flex:none; width:19px; height:19px; border-radius:6px; border:1.5px solid #d1d5db; background:#fff; display:flex; align-items:center; justify-content:center; transition:.12s}
+  .ck.on{background:#111827; border-color:#111827}
+  .ck svg{display:none}
+  .ck.on svg{display:block}
+  .rmeta{flex:1; min-width:0}
+  .rtitle{font-weight:650; font-size:13.5px; letter-spacing:-.01em}
+  .rsub{font-size:11.5px; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left}
+  .rsize{flex:none; font-weight:700; font-size:13px}
+  .rchev{flex:none; color:var(--ink3); transition:.15s}
+  .ritem.open .rchev{transform:rotate(90deg)}
+  .rdetail{display:none; padding:2px 12px 12px 40px}
+  .ritem.open .rdetail{display:block}
+  .rnote{font-size:12px; color:var(--ink2); margin-bottom:8px}
+  .rbd{display:grid; grid-template-columns:1fr auto; gap:2px 12px; font-size:12px; margin-bottom:8px}
+  .rbd .n{color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .rbd .s{color:var(--ink2); font-weight:600}
+  .rscript{background:#0f172a; color:#e2e8f0; border-radius:9px; padding:9px 11px; font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; position:relative; overflow-x:auto}
+  .rscript .cp{position:absolute; top:6px; right:6px; border:0; background:#1e293b; color:#94a3b8; border-radius:6px; padding:3px 8px; font-size:10.5px; cursor:pointer; font-weight:600}
+  .rscript .cp:hover{color:#fff}
+  .rfoot{border-top:1px solid var(--line); padding:12px 16px; display:flex; flex-direction:column; gap:10px}
+  .rfsel{font-size:13px; font-weight:650}
+  .rfsel b{font-size:15px}
+  .rfbtns{display:flex; gap:8px; flex-wrap:wrap}
+  .rfbtns .btn{flex:1; justify-content:center; min-width:130px}
+
+  /* ---------- insights ---------- */
+  .insights{display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:12px; margin-bottom:14px}
+  .ins{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; position:relative; overflow:hidden; box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .ins::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px}
+  .ins.sev-critical::before{background:var(--red)} .ins.sev-warning::before{background:#eab308}
+  .ins.sev-info::before{background:#3b82f6} .ins.sev-ok::before{background:var(--green)}
+  .ins h3{font-size:13.5px; font-weight:700; margin-bottom:4px; display:flex; gap:8px; align-items:center}
+  .ins h3 .dot{width:7px;height:7px;border-radius:50%}
+  .ins p{font-size:12.5px; color:#374151}
+  .ins .cmd{margin-top:8px; display:flex; align-items:center; gap:6px}
+  .ins code{background:#f3f4f6; border:1px solid var(--line); border-radius:7px; padding:4px 8px; font:11.5px ui-monospace,Menlo,monospace; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1}
+  .ins .cbtn{flex:none; border:1px solid var(--line); background:#fff; border-radius:7px; padding:4px 8px; font-size:11px; font-weight:650; cursor:pointer; color:var(--ink2)}
+  .ins .cbtn:hover{background:#f9fafb; color:var(--ink)}
+
+  /* ---------- bottom grid ---------- */
+  .bottom{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:12px}
+  .list{max-height:430px; overflow-y:auto}
+  .frow{display:flex; align-items:center; gap:12px; padding:9px 18px; border-top:1px solid #f1f2f4}
+  .frow:first-child{border-top:0}
+  .frow .fname{font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .frow .fpath{font-size:11.5px; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left}
+  .frow .fsize{flex:none; font-weight:700; font-size:12.5px}
+  .frow .fage{flex:none; color:var(--ink3); font-size:11.5px; width:74px; text-align:right}
+  .mini{flex:none; border:1px solid var(--line); background:#fff; border-radius:7px; font-size:11px; padding:3px 8px; cursor:pointer; color:var(--ink2)}
+  .mini:hover{background:#f9fafb; color:var(--ink)}
+  .orow{display:flex; align-items:center; gap:10px; padding:9px 18px; border-top:1px solid #f1f2f4; cursor:pointer}
+  .orow:first-child{border-top:0}
+  .orow:hover{background:#f9fafb}
+  .orow .oname{font-weight:650; font-size:13px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .orow .osize{font-weight:700; font-size:12.5px}
+  .okids{padding:2px 18px 10px 36px; display:none}
+  .okids.show{display:block}
+  .okids .kr{display:grid; grid-template-columns:1fr auto; font-size:12px; color:#374151; gap:1px 10px}
+  .okids .kr .ks{color:var(--ink2); font-weight:600}
+  .rambar{display:flex; height:14px; border-radius:7px; overflow:hidden; margin:8px 0; background:#f3f4f6}
+  .ramseg{height:100%}
+  .ramlegend{display:flex; flex-wrap:wrap; gap:12px; font-size:11.5px; color:var(--ink2)}
+  .ramlegend i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px}
+  .pad{padding:12px 18px}
+
+  /* ---------- modal / toast ---------- */
+  .overlay{position:fixed; inset:0; background:rgba(17,24,39,.5); display:none; align-items:center; justify-content:center; z-index:100; padding:24px}
+  .overlay.show{display:flex}
+  .noanim *{transition:none !important; animation:none !important}
+  .modal{background:#fff; border-radius:16px; width:min(760px,100%); max-height:84vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,.35)}
+  .modal .mhead{padding:16px 20px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center}
+  .modal .mhead h2{font-size:16px; font-weight:700}
+  .modal .mbody{padding:14px 20px; overflow:auto}
+  .modal pre{background:#0f172a; color:#e2e8f0; border-radius:11px; padding:14px 16px; font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre; overflow-x:auto}
+  .modal pre .cm{color:#64748b}
+  .modal .mfoot{padding:14px 20px; border-top:1px solid var(--line); display:flex; gap:8px; justify-content:flex-end}
+  .freespace{font-size:12.5px; color:var(--ink2); margin-right:auto; align-self:center}
+  #toast{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 18px; border-radius:11px; font-size:13px; font-weight:600; display:none; z-index:120; box-shadow:0 10px 30px rgba(0,0,0,.3); max-width:80vw}
+  .banner{display:none; background:#111827; color:#fff; border-radius:12px; padding:10px 16px; margin-bottom:12px; font-size:13px; font-weight:600; align-items:center; gap:10px}
+  .banner.show{display:flex}
+  .banner .spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+  .fatal{background:var(--red-bg); border:1px solid #fecaca; color:#991b1b; border-radius:12px; padding:14px 18px; display:none}
+  .fatal.show{display:block}
+  .permbanner{display:none; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:12px 16px; margin-bottom:12px; align-items:center; gap:14px}
+  .permbanner.show{display:flex}
+  .permbanner .pb-txt{flex:1; font-size:13px; color:#78350f}
+  .permbanner .pb-txt b{display:block; font-size:13.5px; margin-bottom:1px}
+  .permbanner .pb-actions{display:flex; gap:8px; flex:none}
+  .rowdel{flex:none; border:0; background:transparent; color:#d1d5db; cursor:pointer; padding:4px; border-radius:7px; display:flex; align-items:center; opacity:0; transition:.12s}
+  .rrow:hover .rowdel{opacity:1}
+  .rowdel:hover{color:var(--red); background:#fef2f2}
+  .rowdel:disabled{opacity:.35; cursor:default}
+  .rowdel:disabled:hover{color:#d1d5db; background:transparent}
+  .btn.danger{background:#dc2626; border-color:#dc2626; color:#fff}
+  .btn.danger:hover{background:#b91c1c}
+  .btn.danger:disabled{opacity:.5; cursor:default}
+  .delwarn{background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 13px; font-size:12.5px; margin-bottom:12px}
+  .dellist{max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; margin-bottom:10px}
+  .delrow{display:flex; align-items:center; gap:10px; padding:8px 12px; border-top:1px solid #f1f2f4; font-size:13px}
+  .delrow:first-child{border-top:0}
+  .delrow .dm{flex:1; min-width:0}
+  .delrow .dm .t{font-weight:650}
+  .delrow .dm .s{font-size:11.5px; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .delrow .ds{font-weight:700; font-size:12.5px; flex:none}
+  .tag{font-size:10px; font-weight:750; border-radius:5px; padding:2px 6px; flex:none}
+  .tag.safe{background:var(--green-bg); color:var(--green)}
+  .tag.review{background:var(--yellow-bg); color:var(--yellow)}
+  .delskip{font-size:12px; color:var(--yellow); background:var(--yellow-bg); border-radius:9px; padding:8px 12px; margin-bottom:10px; display:none}
+  .delskip.show{display:block}
+  .delagree{display:flex; gap:9px; align-items:center; font-size:13px; font-weight:600; cursor:pointer; user-select:none}
+  .delagree input{width:16px; height:16px; accent-color:#dc2626; cursor:pointer}
+  .steps{margin:4px 0 0 18px; font-size:13px; line-height:1.9}
+  .muted-note{color:var(--ink3); font-size:12px}
+  @media (max-width:1100px){ .grid{grid-template-columns:1fr} .stats{grid-template-columns:repeat(2,1fr)} .bottom{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <h1><span class="logo">◧</span> Mac Storage</h1>
+      <div class="meta" id="meta">loading…</div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="stopBtn" title="Stop the background dashboard server">⏻ Stop</button>
+      <button class="btn dark" id="rescanBtn"><span class="refresh">↻</span><span class="spin"></span> Rescan</button>
+    </div>
+  </div>
+
+  <div class="banner" id="banner"><span class="spin"></span><span id="bannerMsg">Scanning…</span></div>
+  <div class="fatal" id="fatal"></div>
+  <div class="permbanner" id="permBanner">
+    <div class="pb-txt">
+      <b id="pbTitle">Some folders couldn't be read</b>
+      <div id="pbBody">macOS privacy protection is blocking a few folders, so their sizes are missing.</div>
+    </div>
+    <div class="pb-actions">
+      <button class="btn" id="pbHow">How to fix</button>
+      <button class="btn dark" id="pbSettings">Open Privacy Settings</button>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="head">
+        <div>
+          <h2>Explorer</h2>
+          <p id="explorerSub">Your home folder, sized by real disk usage. Click a tile to zoom in, ⌘-click (or double-click) to reveal it in Finder.</p>
+        </div>
+        <div class="seg">
+          <button data-mode="category" class="on">Category</button>
+          <button data-mode="cleanup">Cleanup</button>
+        </div>
+      </div>
+      <div class="tmtoolbar"><div class="crumb" id="crumb"></div></div>
+      <div class="tm" id="tm"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="panel recs">
+      <div class="head">
+        <div>
+          <h2>Recommendations</h2>
+          <p>Select items to build a cleanup script. Nothing is deleted by this dashboard.</p>
+        </div>
+      </div>
+      <div class="body" id="recBody"></div>
+      <div class="rfoot">
+        <div class="rfsel num" id="rfsel"></div>
+        <div class="rfbtns">
+          <button class="btn" id="selectSafeBtn">Select safe</button>
+          <button class="btn" id="clearBtn">Clear</button>
+          <button class="btn dark" id="scriptBtn">Copy script</button>
+          <button class="btn danger" id="deleteBtn">Delete selected</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="insights" id="insights"></div>
+
+  <div class="bottom">
+    <section class="panel">
+      <div class="head"><div><h2>Largest files</h2><p>Over 300 MB, found while scanning your home folder.</p></div></div>
+      <div class="list" id="bigFiles"></div>
+    </section>
+    <section class="panel">
+      <div class="head"><div><h2>Outside your home folder</h2><p>Applications, system & tooling measured separately.</p></div></div>
+      <div id="outside" style="padding-bottom:8px"></div>
+      <div style="border-top:1px solid #f1f2f4" class="pad" id="ramCard"></div>
+    </section>
+  </div>
+
+  <div class="meta" style="margin:14px 4px; color:var(--ink3)">
+    Nothing is deleted automatically — the dashboard only builds a script you review and run yourself.
+    Sizes are allocated disk blocks; folders protected by macOS privacy settings may be under-reported.
+  </div>
+</div>
+
+<div id="tip"></div>
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="mhead"><h2>Cleanup script</h2><button class="btn" id="closeModal">Close</button></div>
+    <div class="mbody"><pre id="scriptPre"></pre></div>
+    <div class="mfoot">
+      <span class="freespace" id="modalFree"></span>
+      <button class="btn" id="downloadBtn">Download cleanup.sh</button>
+      <button class="btn dark" id="copyModalBtn">Copy</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="permOverlay">
+  <div class="modal">
+    <div class="mhead"><h2>Grant Full Disk Access</h2><button class="btn" id="permClose">Close</button></div>
+    <div class="mbody">
+      <p style="margin-bottom:10px">macOS protects folders like <b>Desktop</b>, <b>Documents</b>, <b>Mail</b> and
+      <b>Photos</b>. Your browser can't read your disk — the local scanner does that, and macOS grants disk
+      access to the app that launched it:</p>
+      <ol class="steps">
+        <li>Open <b>System Settings → Privacy &amp; Security → Full Disk Access</b>.</li>
+        <li>Enable <b id="permApp">your terminal app</b> (click <b>+</b> and add it from Applications if missing).</li>
+        <li><b>Fully quit and reopen</b> that app — macOS applies the permission on restart.</li>
+        <li>Come back here and hit <b>Rescan</b>.</li>
+      </ol>
+      <p style="margin-top:12px" class="muted-note"><b>No Terminal involved:</b> run
+      <b>build_app.command</b> once, then launch <b>Mac Storage Dashboard.app</b> — macOS will ask for access
+      on behalf of the app itself instead. (Granting your browser Full Disk Access adds nothing here: browsers
+      are sandboxed and never scan your disk.)</p>
+      <p style="margin-top:8px" class="muted-note">Without Full Disk Access the dashboard still works — blocked
+      folders are simply skipped and shown as under-reported. Nothing leaves this Mac.</p>
+    </div>
+    <div class="mfoot">
+      <span class="freespace" id="permAffected"></span>
+      <button class="btn" id="permClose2">Later</button>
+      <button class="btn dark" id="permOpenSettings">Open Privacy Settings</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="delOverlay">
+  <div class="modal">
+    <div class="mhead"><h2>Delete selected items</h2><button class="btn" id="delClose">Cancel</button></div>
+    <div class="mbody">
+      <div class="delwarn">These files will be <b>permanently deleted</b> from your disk — they do not go to Trash first.
+      Caches marked “safe” regenerate on their own; “review” items may contain data you care about.</div>
+      <div class="dellist" id="delList"></div>
+      <div class="delskip" id="delSkip"></div>
+      <label class="delagree"><input type="checkbox" id="delUnderstand">
+        I understand this cannot be undone</label>
+    </div>
+    <div class="mfoot">
+      <span class="freespace" id="delFree"></span>
+      <button class="btn" id="delCancel2">Cancel</button>
+      <button class="btn danger" id="delGo" disabled>Delete</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ================= state ================= */
+let DATA = null;
+let MODE = "category";
+let DRILL = [];               // stack of {name, path, children}
+let SELECTED = new Set();
+let EXPANDED = new Set();
+let RUNNING = false;
+let TREE_ROOT = null;         // current root node
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = text; return n; };
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ================= formatting ================= */
+function fmt(b, digits) {
+  if (b == null) return "—";
+  const d = digits === undefined ? 1 : digits;
+  if (b >= 1e12) return (b/1e12).toFixed(1) + " TB";
+  if (b >= 1e9) return (b/1e9).toFixed(d) + " GB";
+  if (b >= 1e6) return (b/1e6).toFixed(d) + " MB";
+  if (b >= 1e3) return (b/1e3).toFixed(0) + " KB";
+  return Math.round(b) + " B";
+}
+function fmtInt(n){ return (n==null? "—" : n.toLocaleString()); }
+function fmtPath(p){
+  const home = DATA?.host?.home;
+  if (home && p.startsWith(home)) return "~" + p.slice(home.length);
+  return p;
+}
+function ago(ts){
+  if (!ts) return "";
+  const s = Date.now()/1000 - ts;
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s/60) + " min ago";
+  if (s < 86400*1.5) return Math.round(s/3600) + " h ago";
+  const d = Math.round(s/86400);
+  if (d < 31) return d + " d ago";
+  const mo = Math.round(d/30.4);
+  if (mo < 24) return mo + " mo ago";
+  return Math.round(d/365) + " y ago";
+}
+function ageDays(mtime){
+  if (!mtime) return null;
+  return Math.floor(Date.now()/1000/86400) - Math.floor(mtime/86400);
+}
+
+/* ================= toast / banner ================= */
+let toastT = null;
+function toast(msg, ms=2600){
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastT); toastT = setTimeout(()=> t.style.display="none", ms);
+}
+function setBanner(msg){
+  const b = $("banner");
+  if (!msg){ b.classList.remove("show"); return; }
+  $("bannerMsg").textContent = msg; b.classList.add("show");
+}
+function copyText(text, okMsg){
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    .then(()=> toast(okMsg || "Copied to clipboard"))
+    .catch(()=>{
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); toast(okMsg || "Copied to clipboard"); }
+      catch(e){ toast("Copy failed — select manually"); }
+      ta.remove();
+    });
+}
+
+/* ================= treemap (squarified) ================= */
+function worst(row, side){
+  let sum=0, mx=0, mn=Infinity;
+  for (const a of row){ sum+=a; if(a>mx)mx=a; if(a<mn)mn=a; }
+  if (sum<=0||mn===Infinity) return Infinity;
+  const s2 = side*side, sum2 = sum*sum;
+  return Math.max((s2*mx)/sum2, sum2/(s2*mn));
+}
+function squarify(items, x, y, w, h){
+  const rects = [];
+  const nodes = items.filter(n => n.size > 0).sort((a,b) => b.size - a.size);
+  const total = nodes.reduce((s,n)=>s+n.size, 0);
+  if (!nodes.length || total <= 0 || w <= 0 || h <= 0) return rects;
+  const scale = (w*h)/total;
+  let rx=x, ry=y, rw=w, rh=h;
+  let row=[], rowNodes=[], rowSum=0, i=0;
+  const flush = () => {
+    if (!row.length || rw <= 0 || rh <= 0) { row=[]; rowNodes=[]; rowSum=0; return; }
+    if (rw >= rh){
+      const tw = rowSum / rh;
+      let yy = ry;
+      rowNodes.forEach((n, k) => {
+        const hh = row[k]/tw;
+        rects.push({node:n, x:rx, y:yy, w:tw, h:hh});
+        yy += hh;
+      });
+      rx += tw; rw -= tw;
+    } else {
+      const th = rowSum / rw;
+      let xx = rx;
+      rowNodes.forEach((n, k) => {
+        const ww = row[k]/th;
+        rects.push({node:n, x:xx, y:ry, w:ww, h:th});
+        xx += ww;
+      });
+      ry += th; rh -= th;
+    }
+    row=[]; rowNodes=[]; rowSum=0;
+  };
+  while (i < nodes.length){
+    if (rw < 1 || rh < 1) break;
+    const n = nodes[i];
+    const area = n.size * scale;
+    const side = Math.min(rw, rh);
+    if (!row.length){ row=[area]; rowNodes=[n]; rowSum=area; i++; continue; }
+    if (worst([...row, area], side) <= worst(row, side)){
+      row.push(area); rowNodes.push(n); rowSum += area; i++;
+    } else flush();
+  }
+  flush();
+  return rects;
+}
+
+const CAT_LABEL = {code:"Code projects", docs:"Documents & media", media:"Documents & media", devtools:"Dev tools & other",
+  sdk:"iOS & Android SDKs", ai:"AI models", caches:"Package caches", apps:"Apps", other:"Other", system:"System"};
+const CAT_COLOR = {code:"var(--c-code)", docs:"var(--c-docs)", media:"var(--c-media)", devtools:"var(--c-devtools)",
+  sdk:"var(--c-sdk)", ai:"var(--c-ai)", caches:"var(--c-caches)", apps:"var(--c-apps)", other:"var(--c-other)", system:"var(--c-devtools)"};
+
+const tip = $("tip");
+function showTip(e, node, hint){
+  const junk = node._junk || 0;
+  tip.innerHTML =
+    `<div class="t-name">${esc(node.name||"")}</div>` +
+    (node.path ? `<div class="t-path">${esc(fmtPath(node.path||""))}</div>` : `<div class="t-path">${esc(node.subtitle||"")}</div>`) +
+    `<div class="t-row"><span class="t-size num">${fmt(node.size)}</span>` +
+    (node._tier === "safe" ? `<span class="badge">safe to remove</span>` :
+     node._tier === "review" ? `<span class="badge y">review first</span>` :
+     junk > 0 ? `<span class="badge">${fmt(junk)} reclaimable</span>` : "") +
+    `</div>` +
+    `<div class="t-hint">${esc(hint)}</div>`;
+  tip.style.display = "block";
+  moveTip(e);
+}
+function moveTip(e){
+  const r = tip.getBoundingClientRect();
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + r.width > window.innerWidth - 10) x = e.clientX - r.width - 12;
+  if (y + r.height > window.innerHeight - 10) y = e.clientY - r.height - 12;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip(){ tip.style.display = "none"; }
+
+function tileFor(node, rect, inner){
+  const t = el("div", "tile");
+  t.style.left = rect.x+"px"; t.style.top = rect.y+"px";
+  t.style.width = Math.max(0, rect.w)+"px"; t.style.height = Math.max(0, rect.h)+"px";
+  const tier = node._tier;
+  if (tier === "safe") t.classList.add("hatch-safe");
+  else if (tier === "review") t.classList.add("hatch-review");
+  else t.style.background = CAT_COLOR[node.category] || "var(--c-other)";
+  if (inner) t.classList.add("in");
+
+  const showCap = rect.w > 52 && rect.h > 24;
+  if (showCap){
+    const cap = el("div", "cap", node.name || node.label || "");
+    cap.title = node.name || "";
+    t.appendChild(cap);
+    if (rect.h > 44 && rect.w > 90){
+      const sz = el("div", "sz num", fmt(node.size));
+      t.appendChild(sz);
+    }
+  }
+  if (!tier && node.junk > 0 && rect.w > 60 && rect.h > 40){
+    const d = el("div", "junkdot"); d.title = fmt(node.junk) + " reclaimable";
+    t.appendChild(d);
+  }
+
+  t.addEventListener("mousemove", (e) => showTip(e, node, node._hint));
+  t.addEventListener("mouseleave", hideTip);
+  t.addEventListener("click", (e) => {
+    if (e.metaKey || e.ctrlKey){ e.stopPropagation(); revealPath(node.path); return; }
+    e.stopPropagation();
+    activateTile(node);
+  });
+  t.addEventListener("dblclick", (e) => { e.stopPropagation(); revealPath(node.path); });
+  return t;
+}
+
+function renderTreemapLevel(nodes, container, x, y, w, h, depth){
+  const rects = squarify(nodes, x, y, w, h);
+  for (const r of rects){
+    if (r.w < 2 || r.h < 2) continue;
+    const node = r.node;
+    const kids = (node.children || []).filter(c => c.size > 0);
+    const canNest = depth < 2 && kids.length >= 2 && r.w > 130 && r.h > 90;
+    const t = tileFor(node, r, canNest);
+    container.appendChild(t);
+    if (canNest){
+      const inner = el("div", "inner");
+      t.appendChild(inner);
+      renderTreemapLevel(kids, inner, 0, 0, Math.max(0, r.w - 9), Math.max(0, r.h - 30), depth + 1);
+    }
+  }
+}
+
+function buildCategoryNodes(){
+  const home = DATA.home || {};
+  const kids = (home.children || []).map(n => ({
+    name: n.name, path: n.path, size: n.size, category: n.category,
+    children: (n.children||[]).map(c => ({name:c.name, path:c.path, size:c.size, category:c.category||n.category})),
+    junk: n.junk, _hint: n.junk > 0 ? `${fmt(n.junk)} reclaimable here · click to zoom, ⌘-click to reveal` : "click to zoom · ⌘-click to reveal in Finder"
+  }));
+  return { name: "Home", path: DATA.host?.home, size: home.total, children: kids };
+}
+function buildCleanupNodes(){
+  const nodes = (DATA.cleanup_nodes || []).map(n => ({
+    name: n.label || n.name, path: n.label?.startsWith("~") ? (DATA.host.home + n.label.slice(1)) : undefined,
+    subtitle: (n.label || n.name) + ((n.items||[]).length ? ` · ${n.items.length} item${n.items.length===1?"":"s"}` : ""),
+    size: n.size, _tier: n.tier, junk: n.size, _items: n.items || [],
+    _hint: n.tier === "safe" ? "Safe to remove — click to see it in Recommendations" : "Needs review — click to see it in Recommendations"
+  }));
+  return { name: "Reclaimable", size: nodes.reduce((s,n)=>s+n.size,0), children: nodes };
+}
+
+function renderTreemap(){
+  const tm = $("tm");
+  tm.innerHTML = "";
+  hideTip();
+  if (!DATA){ renderCrumb({name:"Home", children:[]}); return; }
+  let root, modeHint = "";
+  if (MODE === "category"){
+    root = TREE_ROOT || (TREE_ROOT = buildCategoryNodes());
+  } else {
+    root = buildCleanupNodes();
+  }
+  const w = tm.clientWidth, h = tm.clientHeight;
+  if (!root || !root.children || !root.children.length){
+    tm.appendChild(el("div","pad","No data yet. Run a scan first."));
+    renderCrumb(root);
+    return;
+  }
+  if (MODE === "category"){
+    const kids = (TREE_ROOT?.children || []);
+    renderTreemapLevel(kids, tm, 0, 0, w, h, 0);
+  } else {
+    renderTreemapLevel(root.children, tm, 0, 0, w, h, 0);
+  }
+  renderCrumb(root);
+}
+
+function renderCrumb(root){
+  const c = $("crumb"); c.innerHTML = "";
+  if (MODE === "cleanup"){
+    c.appendChild(el("span", null, "Reclaimable → " + fmt(root.size) + " (safe + review)"));
+    return;
+  }
+  const home = el("button", null, "~ Home");
+  home.onclick = () => { DRILL = []; TREE_ROOT = buildCategoryNodes(); renderTreemap(); };
+  c.appendChild(home);
+  DRILL.forEach((d, idx) => {
+    c.appendChild(el("span", null, "/"));
+    const b = el("button", null, d.name);
+    b.onclick = () => { DRILL = DRILL.slice(0, idx+1); TREE_ROOT = DRILL[DRILL.length-1]; renderTreemap(); };
+    c.appendChild(b);
+  });
+  if (DRILL.length) c.appendChild(el("span", null, "· " + fmt(DRILL[DRILL.length-1].size)));
+}
+
+function activateTile(node){
+  if (MODE === "cleanup"){
+    const first = (node._items || [])[0];
+    if (first) focusRec(first);
+    return;
+  }
+  const kids = (node.children || []).filter(c => c.size > 0);
+  if (kids.length >= 2){
+    DRILL.push(node);
+    TREE_ROOT = node;
+    renderTreemap();
+  } else if (node.path){
+    revealPath(node.path);
+  }
+}
+function revealPath(path){
+  if (!path) return;
+  fetch("/api/reveal", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({path})})
+    .then(r => r.json()).then(j => { if (!j.ok) toast("Could not open in Finder: " + (j.error||"")); })
+    .catch(()=> toast("Reveal requires the dashboard server"));
+}
+
+/* ================= stats ================= */
+function selectedBytes(){
+  if (!DATA) return 0;
+  let sum = 0;
+  for (const tier of ["safe","review"])
+    for (const r of DATA.recommendations[tier])
+      if (SELECTED.has(r.id)) sum += r.size;
+  return sum;
+}
+function renderStats(){
+  const d = DATA, disk = d.disk || {}, t = d.totals || {};
+  const sel = selectedBytes();
+  const stats = $("stats"); stats.innerHTML = "";
+  const card = (dotCls, label, value, delta, sub, note) => {
+    const s = el("div","stat");
+    const l = el("div","lbl"); l.appendChild(el("span","dot "+dotCls)); l.appendChild(el("span",null,label));
+    const v = el("div","val num"); v.appendChild(el("span", null, value));
+    if (delta) v.appendChild(el("span","delta num", delta));
+    if (sub) v.appendChild(el("span","sub num", sub));
+    s.appendChild(l); s.appendChild(v);
+    if (note) s.appendChild(el("div","note", note));
+    stats.appendChild(s);
+  };
+  card("g","Free after cleanup", fmt(disk.free + sel), `+${fmt(sel)}`, null, `currently ${fmt(disk.free)} free · ${disk.percent_used}% used`);
+  card("g","Safe to remove", fmt(t.safe), null, `${d.recommendations.safe.length} items`, "caches & regenerables — zero risk");
+  card("y","Needs review", fmt(t.review), null, `${d.recommendations.review.length} items`, "data you should look at first");
+  card("k","Not measured", fmt(d.unaccounted), null, "system & other", "macOS system data, other users & snapshots");
+}
+
+/* ================= recommendations ================= */
+function recItem(r){
+  const wrap = el("div","ritem"); wrap.id = "rec-" + r.id;
+  const row = el("div","rrow");
+  const ck = el("div","ck" + (SELECTED.has(r.id) ? " on" : ""));
+  ck.innerHTML = `<svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const meta = el("div","rmeta");
+  meta.appendChild(el("div","rtitle", r.title));
+  meta.appendChild(el("div","rsub", r.subtitle || (r.sources||[]).map(fmtPath).join(", ")));
+  const size = el("div","rsize num", fmt(r.size));
+  const del = el("button","rowdel");
+  del.innerHTML = '<svg width="13" height="14" viewBox="0 0 13 14" fill="none"><path d="M1 3.2h11M4.3 3.2V1.8h4.4v1.4M2.3 3.2l.7 9.2c.05.6.55 1 1.15 1h4.7c.6 0 1.1-.4 1.15-1l.7-9.2M5 5.7v5M8 5.7v5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  del.title = r.deletable ? "Delete “" + r.title + "” now" : "Needs sudo — use Copy script in Terminal";
+  del.disabled = !r.deletable;
+  del.onclick = (e) => { e.stopPropagation(); openDeleteModal([r.id]); };
+  const chev = el("div","rchev","›");
+  row.append(ck, meta, size, del, chev);
+  row.onclick = () => {
+    if (SELECTED.has(r.id)){ SELECTED.delete(r.id); ck.classList.remove("on"); }
+    else { SELECTED.add(r.id); ck.classList.add("on"); }
+    renderStats(); updateFooter();
+  };
+  chev.addEventListener("click", (e)=>{ e.stopPropagation(); toggleExpand(r.id); });
+  const det = el("div","rdetail");
+  if (r.note) det.appendChild(el("div","rnote", r.note));
+  if (r.breakdown && r.breakdown.length){
+    const bd = el("div","rbd");
+    for (const b of r.breakdown.slice(0,12)){
+      bd.appendChild(el("div","n", b.name));
+      bd.appendChild(el("div","s num", fmt(b.size) + (b.age_days!=null && b.age_days>60 ? ` · ${b.age_days}d old` : "")));
+    }
+    det.appendChild(bd);
+  }
+  if (r.script && r.script.length){
+    const sc = el("div","rscript");
+    const pre = el("div"); pre.textContent = r.script.join("\n");
+    const cp = el("button","cp","copy"); cp.onclick = (e)=>{ e.stopPropagation(); copyText(r.script.join("\n"), "Commands copied"); };
+    sc.appendChild(pre); sc.appendChild(cp);
+    det.appendChild(sc);
+  }
+  wrap.appendChild(row); wrap.appendChild(det);
+  wrap.classList.toggle("open", EXPANDED.has(r.id));
+  return wrap;
+}
+function toggleExpand(id){
+  if (EXPANDED.has(id)) EXPANDED.delete(id); else EXPANDED.add(id);
+  const n = $("rec-" + id);
+  if (n) n.classList.toggle("open", EXPANDED.has(id));
+}
+function updateFooter(){
+  const sel = selectedBytes();
+  const n = SELECTED.size;
+  $("rfsel").innerHTML = `<b class="num">${fmt(sel)}</b> selected · ${n} item${n===1?"":"s"}`;
+}
+function renderRecs(){
+  const body = $("recBody"); body.innerHTML = "";
+  if (!DATA) return;
+  const groups = [
+    {tier:"safe", label:"Safe to remove", cls:"safe"},
+    {tier:"review", label:"Review first", cls:"review"},
+  ];
+  for (const g of groups){
+    const list = DATA.recommendations[g.tier] || [];
+    if (!list.length) continue;
+    const box = el("div","rgroup");
+    const head = el("div","ghead");
+    head.appendChild(el("span","pill " + g.cls, g.label));
+    head.appendChild(el("span","gsum num", fmt(list.reduce((s,r)=>s+r.size,0))));
+    box.appendChild(head);
+    for (const r of [...list].sort((a,b)=>b.size-a.size)) box.appendChild(recItem(r));
+    body.appendChild(box);
+  }
+  updateFooter();
+}
+function focusRec(id){
+  EXPANDED.add(id);
+  renderRecs();
+  const n = $("rec-" + id);
+  if (n){
+    n.scrollIntoView({behavior:"smooth", block:"center"});
+    n.classList.add("flash");
+    setTimeout(()=> n.classList.remove("flash"), 2600);
+  }
+}
+
+/* ================= insights ================= */
+function renderInsights(){
+  const box = $("insights"); box.innerHTML = "";
+  const dotFor = {critical:"#dc2626", warning:"#eab308", info:"#3b82f6", ok:"#16a34a"};
+  for (const i of DATA.insights || []){
+    const c = el("div","ins sev-" + i.severity);
+    const h = el("h3");
+    const d = el("span","dot"); d.style.background = dotFor[i.severity] || "#9ca3af";
+    h.appendChild(d); h.appendChild(el("span", null, i.title));
+    c.appendChild(h);
+    c.appendChild(el("p", null, i.text));
+    if (i.cmd){
+      const cr = el("div","cmd");
+      cr.appendChild(el("code", null, i.cmd));
+      const b = el("button","cbtn","Copy");
+      b.onclick = () => copyText(i.cmd, "Command copied");
+      cr.appendChild(b);
+      c.appendChild(cr);
+    }
+    box.appendChild(c);
+  }
+}
+
+/* ================= big files / outside / ram ================= */
+function renderBigFiles(){
+  const wrap = $("bigFiles"); wrap.innerHTML = "";
+  const files = DATA.big_files || [];
+  if (!files.length){ wrap.appendChild(el("div","pad","Nothing over 300 MB found.")); return; }
+  for (const f of files){
+    const row = el("div","frow");
+    const meta = el("div"); meta.style.cssText = "flex:1;min-width:0";
+    const nm = el("div","fname", f.path.split("/").pop());
+    const p = el("div","fpath", fmtPath(f.path));
+    p.title = f.path;
+    meta.append(nm, p);
+    const age = ageDays(f.mtime);
+    row.append(meta,
+      el("div","fsize num", fmt(f.size)),
+      el("div","fage", age==null?"":age<1?"today":age + "d old"));
+    const b = el("button","mini","reveal");
+    b.onclick = () => revealPath(f.path);
+    row.appendChild(b);
+    wrap.appendChild(row);
+  }
+}
+function renderOutside(){
+  const wrap = $("outside"); wrap.innerHTML = "";
+  for (const o of DATA.outside || []){
+    const row = el("div","orow");
+    row.appendChild(el("div","oname", o.name));
+    row.appendChild(el("div","osize num", fmt(o.size)));
+    const kids = el("div","okids");
+    if (o.children && o.children.length){
+      const chev = el("span","rchev","›"); chev.style.transform="rotate(90deg)";
+      row.insertBefore(chev, row.firstChild);
+      for (const k of o.children.slice(0,10)){
+        kids.appendChild(el("div","kr")).appendChild(el("span","n",k.name));
+        kids.lastChild.appendChild(el("span","ks num", fmt(k.size)));
+      }
+      row.onclick = () => { kids.classList.toggle("show"); chev.style.transform = kids.classList.contains("show") ? "rotate(270deg)" : "rotate(90deg)"; };
+    }
+    wrap.appendChild(row); wrap.appendChild(kids);
+  }
+  const un = DATA.unaccounted || 0;
+  if (un > 0){
+    const row = el("div","orow");
+    row.appendChild(el("div","oname","System & other (not measured)"));
+    row.appendChild(el("div","osize num", fmt(un)));
+    wrap.appendChild(row);
+  }
+  // RAM card
+  const m = DATA.memory || {};
+  const rc = $("ramCard"); rc.innerHTML = "";
+  const tot = m.total || 1;
+  const segs = [
+    ["Wired", m.wired, "#52525b"],
+    ["Active", m.active, "#93b4f5"],
+    ["Inactive", m.inactive, "#c9dcfb"],
+    ["Compressed", m.compressed, "#c4b5fd"],
+    ["Free", m.free, "#e5e7eb"],
+  ];
+  const h = el("h2", null, "Memory (RAM)");
+  h.style.cssText = "font-size:15px;font-weight:700;margin-bottom:2px";
+  rc.appendChild(h);
+  rc.appendChild(el("div", "note", `${fmt(m.free,1)} free of ${fmt(tot,0)} (${m.free_percent}%) · swap ${fmt(m.swap_used)} of ${fmt(m.swap_total)}`));
+  const bar = el("div","rambar");
+  for (const [name, val, color] of segs){
+    const s = el("div","ramseg");
+    s.style.width = Math.max(0, Math.min(100, (val/tot*100))) + "%";
+    s.style.background = color; s.title = name + " · " + fmt(val);
+    bar.appendChild(s);
+  }
+  rc.appendChild(bar);
+  const lg = el("div","ramlegend");
+  for (const [name, val, color] of segs){
+    const s = el("span"); const i = el("i"); i.style.background = color;
+    s.appendChild(i); s.appendChild(el("span", null, `${name} ${fmt(val)}`));
+    lg.appendChild(s);
+  }
+  rc.appendChild(lg);
+}
+
+/* ================= script builder ================= */
+function buildScript(){
+  const sel = [];
+  for (const tier of ["safe","review"])
+    for (const r of DATA.recommendations[tier])
+      if (SELECTED.has(r.id) && r.script && r.script.length) sel.push(r);
+  const bytes = selectedBytes();
+  const now = new Date();
+  const lines = [];
+  lines.push("#!/bin/bash");
+  lines.push("# Mac Storage Dashboard — cleanup script");
+  lines.push(`# Generated ${now.toLocaleString()} · selected: ${fmt(bytes)} across ${SELECTED.size} item(s)`);
+  lines.push("# REVIEW EVERY LINE BEFORE RUNNING. Deletions are permanent.");
+  lines.push("set -u");
+  lines.push("");
+  lines.push(`echo "Freeing up to ${fmt(bytes)}…"`);
+  lines.push("");
+  for (const r of sel){
+    lines.push(`# ── ${r.title} · ${fmt(r.size)}  (${r.subtitle || ""})`);
+    for (const l of r.script) lines.push(l);
+    lines.push("");
+  }
+  lines.push(`echo "Done. Old size freed: see 'df -h /System/Volumes/Data'."`);
+  lines.push("");
+  return lines.join("\n");
+}
+function showModal(){
+  if (!SELECTED.size){ toast("Select something first"); return; }
+  const script = buildScript();
+  const pre = $("scriptPre");
+  pre.textContent = script;
+  $("modalFree").textContent = `Selected: ${fmt(selectedBytes())} — script frees space only when you run it.`;
+  $("overlay").classList.add("show");
+}
+
+/* ================= permissions (macOS Full Disk Access) ================= */
+function renderPermissions(){
+  const p = DATA?.permissions || {};
+  const canary = (p.denied || []).map(d => d.label);
+  const walkTops = Object.keys(p.walk_denied_tops || {});
+  const names = [...new Set([...canary, ...walkTops])];
+  const banner = $("permBanner");
+  if (!names.length){ banner.classList.remove("show"); return; }
+  const app = p.parent_app || "your terminal app";
+  const list = `${names.slice(0,5).join(", ")}${names.length > 5 ? `, +${names.length-5} more` : ""}`;
+  if (canary.length){
+    $("pbTitle").textContent = "Some folders couldn't be read";
+    $("pbBody").textContent =
+      `${list} are protected by macOS — their sizes are missing from this scan. Grant Full Disk Access to ${app} to include them.`;
+  } else {
+    $("pbTitle").textContent = "A few folders were not readable";
+    $("pbBody").textContent =
+      `${list} couldn't be read (protected app data), so their sizes are slightly under-reported.`;
+  }
+  $("permApp").textContent = app;
+  $("permAffected").textContent = `Blocked: ${names.slice(0,4).join(", ")}${names.length > 4 ? "…" : ""}`;
+  banner.classList.add("show");
+}
+function openSettings(){
+  fetch("/api/open-settings", {method:"POST"})
+    .then(r => r.json())
+    .then(j => toast(j.ok ? "Opening Privacy & Security settings…" : "Open System Settings → Privacy & Security → Full Disk Access"))
+    .catch(() => toast("Open System Settings → Privacy & Security → Full Disk Access"));
+}
+
+/* ================= delete (in-app cleanup) ================= */
+let DEL_IDS = [];
+let cleanupTimer = null;
+function recById(id){
+  const recs = DATA?.recommendations || {};
+  return (recs.safe || []).find(r => r.id === id) || (recs.review || []).find(r => r.id === id) || null;
+}
+function openDeleteModal(ids){
+  DEL_IDS = (ids || []).filter(id => recById(id));
+  if (!DEL_IDS.length){ toast("Nothing to delete"); return; }
+  const list = $("delList"); list.innerHTML = "";
+  let total = 0, skippable = 0;
+  for (const id of DEL_IDS){
+    const r = recById(id);
+    const row = el("div","delrow");
+    const m = el("div","dm");
+    m.appendChild(el("div","t", r.title));
+    m.appendChild(el("div","s", r.subtitle || (r.sources || []).join("  ·  ") || "—"));
+    row.appendChild(m);
+    row.appendChild(el("span","tag " + r.tier, r.tier === "safe" ? "safe" : "review"));
+    row.appendChild(el("span","ds num", r.deletable ? fmt(r.size) : fmt(r.size) + " · script"));
+    if (r.deletable) total += r.size; else skippable++;
+    list.appendChild(row);
+  }
+  const sk = $("delSkip");
+  if (skippable){
+    sk.textContent = `${skippable} of these need sudo and will be skipped in-app — use “Copy script” in Terminal for those.`;
+    sk.classList.add("show");
+  } else sk.classList.remove("show");
+  $("delFree").textContent = total > 0 ? `Frees up to ${fmt(total)} — files are deleted immediately, not moved to Trash.`
+                                       : "None of the selected items can be deleted from the app — use the script.";
+  $("delGo").textContent = total > 0 ? `Delete ${fmt(total)}` : "Nothing deletable";
+  $("delUnderstand").checked = false;
+  $("delGo").disabled = true;
+  $("delOverlay").classList.add("show");
+}
+function closeDeleteModal(){ $("delOverlay").classList.remove("show"); }
+function doDelete(){
+  const ids = DEL_IDS.slice();
+  closeDeleteModal();
+  fetch("/api/cleanup", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids})})
+    .then(r => r.json())
+    .then(j => {
+      if (!j.started){ toast(j.reason || j.error || "Could not start the cleanup"); return; }
+      setRunning(true);
+      setBanner("Deleting files…");
+      pollCleanup();
+    })
+    .catch(() => toast("Delete requires the dashboard server"));
+}
+function pollCleanup(){
+  cleanupTimer && clearTimeout(cleanupTimer);
+  cleanupTimer = setTimeout(async () => {
+    let s;
+    try { s = await (await fetch("/api/cleanup/status", {cache:"no-store"})).json(); }
+    catch(e){ setRunning(false); setBanner(null); toast("Lost contact with the dashboard server"); return; }
+    if (s.running){
+      setBanner(`Deleting… ${s.done}/${s.planned}${s.freed ? " · " + fmt(s.freed) + " freed" : ""}`);
+      pollCleanup();
+      return;
+    }
+    const okCount = (s.results || []).filter(x => x.ok).length;
+    const failed  = (s.results || []).filter(x => !x.ok).length;
+    const skipped = (s.skipped || []).length;
+    let msg = `Deleted ${fmt(s.freed || 0)} · ${okCount} path${okCount === 1 ? "" : "s"}`;
+    if (failed)  msg += ` · ${failed} failed`;
+    if (skipped) msg += ` · ${skipped} skipped`;
+    toast(msg, 5200);
+    setBanner("Refreshing numbers…");
+    tick();
+  }, 700);
+}
+
+/* ================= data load & scan status ================= */
+function applyData(d){
+  DATA = d;
+  const host = d.host || {};
+  let ram = "";
+  if (host.ram_bytes) ram = Math.round(host.ram_bytes/1073741824) + " GB RAM";
+  $("meta").textContent = [
+    host.model_name || host.model || "Mac",
+    "macOS " + (host.os || "?"),
+    ram,
+    `scanned ${ago(Date.parse(d.generated_at)/1000)} in ${d.scan_seconds}s`,
+    d.stats ? `${fmtInt(d.stats.home_files)} files mapped` : ""
+  ].filter(Boolean).join(" · ");
+
+  // default selection: all safe items
+  SELECTED = new Set((d.recommendations?.safe || []).map(r => r.id));
+  renderStats(); renderRecs(); renderTreemap(); renderInsights(); renderBigFiles(); renderOutside();
+  renderPermissions();
+}
+function loadData(){
+  return fetch("/data.json", {cache:"no-store"})
+    .then(r => { if (!r.ok) throw new Error("no data"); return r.json(); })
+    .then(d => { applyData(d); setFatal(null); return true; })
+    .catch(err => {
+      setFatal("No scan data yet. " + (RUNNING ? "A scan is running — this page will update automatically." : "Click Rescan to map your disk."));
+      return false;
+    });
+}
+function setFatal(msg){
+  const f = $("fatal");
+  if (!msg){ f.classList.remove("show"); return; }
+  f.textContent = msg; f.classList.add("show");
+}
+
+function pollStatus(){
+  return fetch("/api/status", {cache:"no-store"}).then(r => r.json()).catch(()=> null);
+}
+function setRunning(on){
+  RUNNING = on;
+  $("rescanBtn").classList.toggle("running", on);
+  $("rescanBtn").disabled = on;
+  const dbtn = $("deleteBtn");
+  if (dbtn) dbtn.disabled = on;
+  if (on) setBanner(null);
+}
+function startRescan(){
+  fetch("/api/rescan", {method:"POST"}).then(r=>r.json()).then(j => {
+    if (j.started){ setRunning(true); setBanner("Scanning your disk…"); tick(); }
+    else toast("A scan is already running");
+  }).catch(()=> toast("Rescan requires the dashboard server"));
+}
+let pollTimer = null;
+function tick(){
+  pollTimer && clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    const s = await pollStatus();
+    if (!s){ setBanner(null); setRunning(false); return; }
+    if (s.running || s.state?.status === "running"){
+      setRunning(true);
+      setBanner(s.state?.message || "Scanning…");
+      tick();
+    } else {
+      setRunning(false);
+      setBanner(null);
+      if (s.state?.status === "error"){
+        setFatal("Last scan failed: " + (s.state.error || s.state.message || "unknown error"));
+        return;
+      }
+      await loadData();
+      renderStats(); renderTreemap();
+      toast("Scan complete");
+    }
+  }, 1400);
+}
+
+/* ================= init ================= */
+function setMode(m){
+  MODE = m;
+  try { history.replaceState(null, "", m === "cleanup" ? "#cleanup" : location.pathname); } catch(e){}
+  document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
+  $("explorerSub").textContent = m === "category"
+    ? "Your home folder, sized by real disk usage. Click a tile to zoom in, ⌘-click (or double-click) to reveal it in Finder."
+    : "Everything this dashboard considers reclaimable. Green hatch = safe to remove · yellow hatch = review first. Click a tile to jump to it.";
+  const lg = $("legend"); lg.innerHTML = "";
+  if (m === "category"){
+    const seen = new Set();
+    for (const [k, label] of Object.entries(CAT_LABEL)){
+      if (seen.has(label) || !CAT_COLOR[k]) continue; seen.add(label);
+      const s = el("span"); const i = el("i"); i.style.background = CAT_COLOR[k];
+      s.appendChild(i); s.appendChild(el("span", null, label)); lg.appendChild(s);
+    }
+    const s = el("span"); s.appendChild(el("i","junkdot-dot")); // noop placeholder
+  } else {
+    const s1 = el("span"); s1.appendChild(el("i","hatch")); s1.appendChild(el("span",null,"Safe to remove")); lg.appendChild(s1);
+    const s2 = el("span"); s2.appendChild(el("i","hatchy")); s2.appendChild(el("span",null,"Review first")); lg.appendChild(s2);
+  }
+  renderTreemap();
+}
+
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$("rescanBtn").onclick = startRescan;
+$("scriptBtn").onclick = showModal;
+$("closeModal").onclick = () => $("overlay").classList.remove("show");
+$("copyModalBtn").onclick = () => copyText(buildScript(), "Script copied — paste it in Terminal after reviewing");
+$("downloadBtn").onclick = () => {
+  const blob = new Blob([buildScript()], {type:"text/x-shellscript"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "cleanup.sh";
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$("selectSafeBtn").onclick = () => { SELECTED = new Set(DATA.recommendations.safe.map(r=>r.id)); renderRecs(); renderStats(); };
+$("clearBtn").onclick = () => { SELECTED = new Set(); renderRecs(); renderStats(); };
+$("deleteBtn").onclick = () => openDeleteModal([...SELECTED]);
+$("stopBtn").onclick = () => {
+  if (!confirm("Stop the dashboard server?\n\nThe dashboard goes offline until you launch Mac Storage Dashboard again. Your files are not touched.")) return;
+  fetch("/api/shutdown", {method:"POST"}).then(() => {
+    setFatal("Dashboard server stopped — relaunch Mac Storage Dashboard whenever you want it back.");
+    $("stopBtn").disabled = true;
+    $("rescanBtn").disabled = true;
+    const db = $("deleteBtn"); if (db) db.disabled = true;
+  }).catch(() => toast("Couldn't reach the server"));
+};
+$("delClose").onclick = closeDeleteModal;
+$("delCancel2").onclick = closeDeleteModal;
+$("delUnderstand").onchange = () => { $("delGo").disabled = !$("delUnderstand").checked; };
+$("delGo").onclick = doDelete;
+$("pbHow").onclick = () => $("permOverlay").classList.add("show");
+$("pbSettings").onclick = openSettings;
+$("permOpenSettings").onclick = openSettings;
+$("permClose").onclick = () => $("permOverlay").classList.remove("show");
+$("permClose2").onclick = () => $("permOverlay").classList.remove("show");
+document.querySelectorAll(".overlay").forEach(o => o.addEventListener("click", (e) => { if (e.target === o) o.classList.remove("show"); }));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape"){ document.querySelectorAll(".overlay.show").forEach(o => o.classList.remove("show")); hideTip(); } });
+window.addEventListener("resize", () => renderTreemap());
+
+(async function init(){
+  setMode(location.hash === "#cleanup" ? "cleanup" : "category");
+  const s = await pollStatus();
+  const cs = await fetch("/api/cleanup/status", {cache:"no-store"}).then(r=>r.json()).catch(()=>null);
+  if (cs && cs.running){ setRunning(true); setBanner("Deleting files…"); pollCleanup(); }
+  else if (s && (s.running || s.state?.status === "running")){
+    setRunning(true); setBanner(s.state?.message || "Scanning…"); tick();
+  }
+  await loadData();
+  if (DATA){ renderStats(); renderTreemap(); }
+  /* demo hooks for docs screenshots — #hash, ?demo=… or /demo/… all work */
+  const pathDemo = (location.pathname.match(/^\/demo\/([a-z-]+)$/) || [])[1] || "";
+  const DEMO = (location.hash ? location.hash.slice(1) : "") || new URLSearchParams(location.search).get("demo") || pathDemo;
+  if (DEMO) document.body.classList.add("noanim");
+  if (DEMO === "cleanup") setMode("cleanup");
+  if (DEMO === "delete" && DATA){
+    if (!SELECTED.size && DATA.recommendations?.safe?.length){
+      SELECTED = new Set(DATA.recommendations.safe.slice(0, 5).map(r => r.id));
+      renderRecs(); renderStats();
+    }
+    openDeleteModal([...SELECTED]);
+  }
+  if (DEMO === "perm-modal" && DATA){
+    $("permOverlay").classList.add("show");
+  }
+  if (DEMO === "perm-demo" && DATA){
+    DATA.permissions = DATA.permissions || {};
+    DATA.permissions.denied = [{label:"Desktop"},{label:"Documents"},{label:"Downloads"},{label:"Safari"}];
+    DATA.permissions.parent_app = DATA.permissions.parent_app || "Terminal";
+    renderPermissions();
+  }
+})();
+</script>
+</body>
+</html>
