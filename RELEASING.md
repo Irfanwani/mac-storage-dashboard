@@ -43,15 +43,48 @@ The **Release** workflow then, if tag `v<version>` doesn't exist yet:
   Prefer an API token? Create one, add it as the `PYPI_API_TOKEN` secret, and
   uncomment the `with: password:` line in the `pypi` job.
 
-- **Homebrew tap** — add a repo secret `HOMEBREW_TAP_TOKEN`:
+- **Homebrew tap** — the release workflow pushes the updated cask to
+  `Irfanwani/homebrew-tap`, so it needs one repository secret in **this** repo
+  (`mac-storage-dashboard`), named `HOMEBREW_TAP_TOKEN`. Two ways to set it up:
 
-  - Classic PAT with the `repo` scope (also lets the workflow create
-    `Irfanwani/homebrew-tap` on the first release), **or**
-  - fine-grained PAT with *Contents: Read and write* on `homebrew-tap`
-    (create the tap repo yourself first).
+  **Option 1 — let the workflow create the tap (simplest)**
 
-  Without the secret the tap job skips with a warning; everything else still
-  releases.
+  1. Create a *classic* PAT: GitHub → avatar → **Settings → Developer settings →
+     Personal access tokens → Tokens (classic) → Generate new token (classic)**.
+     - Note: `mac-storage-dashboard releases`
+     - Expiration: anything (e.g. 90 days). If it expires, the tap job skips
+       with a warning until you rotate it — the other channels never break.
+     - Scopes: check **`repo`** (or just **`public_repo`** — the tap is public).
+  2. Add it to this repo: **Settings → Secrets and variables → Actions → New
+     repository secret**, name `HOMEBREW_TAP_TOKEN`, paste the token.
+  3. Done — the first release creates `Irfanwani/homebrew-tap` (public) and
+     pushes `Casks/mac-storage-dashboard.rb` into it.
+
+  **Option 2 — pre-create the tap, least-privilege token**
+
+  1. Create the tap: github.com/new → owner `Irfanwani`, name `homebrew-tap`,
+     Public, "Add a README file" ✓.
+  2. Create a *fine-grained* PAT: **Settings → Developer settings → Personal
+     access tokens → Fine-grained tokens → Generate new token**:
+     Resource owner `Irfanwani`, *Only select repositories* → `homebrew-tap`,
+     permissions **Contents → Read and write**.
+  3. Add it as `HOMEBREW_TAP_TOKEN`, same as above.
+
+  (The tap must be named exactly `homebrew-tap` — otherwise edit `TAP=` in the
+  `homebrew` job of the workflow. Without the secret at all, the tap job skips
+  with a warning; everything else still releases.)
+
+  **Optional — verify a classic token before merging:**
+
+  ```bash
+  curl -s -H "Authorization: token <TOKEN>" https://api.github.com/user | grep -o '"login": *"[^"]*"'
+  curl -sI -H "Authorization: token <TOKEN>" https://api.github.com/user | grep -i x-oauth-scopes
+  ```
+
+  After the first release, `Irfanwani/homebrew-tap` should contain a commit
+  (`mac-storage-dashboard <version>`) with `Casks/mac-storage-dashboard.rb`.
+  If the `homebrew` job fails, check its log — usual causes: missing/mistyped
+  secret, expired or under-scoped token (403), or branch protection on the tap.
 
 - Nothing else — the GitHub release uses the built-in `GITHUB_TOKEN`.
 
