@@ -15,6 +15,18 @@ confirmed deletion right in the app.
 brew install --cask irfanwani/tap/mac-storage-dashboard
 ```
 
+> **First launch needs your approval** — the app isn't notarized by Apple yet, so
+> macOS says it "cannot verify" it. Allow it either via
+> **System Settings → Privacy & Security → Open Anyway**, or in one line:
+>
+> ```bash
+> xattr -dr com.apple.quarantine "/Applications/Mac Storage Dashboard.app"
+> ```
+>
+> Re-apply after every `brew upgrade` — Homebrew quarantines each new download.
+> Want zero approval prompts instead? Option B builds the app locally, which
+> macOS never quarantines.
+
 **Option B — PyPI (pipx).** The package builds the app for you and installs it into
 `/Applications` (falls back to `~/Applications`):
 

@@ -18,6 +18,19 @@ cask "mac-storage-dashboard" do
 
   app "Mac Storage Dashboard.app"
 
+  caveats <<~EOS
+    This app is not notarized by Apple yet, so macOS blocks its first launch
+    ("Apple could not verify ..."). To allow it, either:
+
+      - click "Done" on the warning, then allow the app under
+        System Settings -> Privacy & Security -> "Open Anyway", or
+      - remove the quarantine flag in Terminal:
+
+          xattr -dr com.apple.quarantine "#{appdir}/Mac Storage Dashboard.app"
+
+    Repeat after every `brew upgrade`, which quarantines the new download.
+  EOS
+
   zap trash: [
     "~/Library/Application Support/Mac Storage Dashboard",
   ]
