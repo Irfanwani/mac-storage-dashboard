@@ -22,7 +22,7 @@ The **Release** workflow then, if tag `v<version>` doesn't exist yet:
 | Job | What it does |
 |---|---|
 | `version` | reads `__version__`, checks the tag; skips everything when the version was already released (docs pushes are no-ops) |
-| `app-release` | runs the cleanup regression test, builds the app on macOS, smoke-tests that it boots and serves, zips it, creates the GitHub release (tag `v<version>` + auto-generated notes) and uploads `Mac-Storage-Dashboard.zip` |
+| `app-release` | runs the cleanup regression test, builds the app on macOS, validates the bundle (files, launcher, version), zips it, creates the GitHub release (tag `v<version>` + auto-generated notes) and uploads `Mac-Storage-Dashboard.zip` |
 | `pypi` | builds sdist + wheel, publishes to PyPI (skips if the version is already there, so retries are safe) |
 | `homebrew` | writes `Casks/mac-storage-dashboard.rb` (version + sha256) into the tap repo and pushes |
 
