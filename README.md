@@ -36,7 +36,9 @@ starts the dashboard server in the background and opens it in your browser, and 
 asks that *app* for disk access instead of your terminal. Want it off? Click **⏻ Stop**
 in the dashboard.
 
-**(Publishing the package/tap for the first time? See [RELEASING.md](RELEASING.md).)**
+**(Releases are automated — bump `__version__`, merge to `main`, and
+[the release workflow](.github/workflows/release.yml) tags, builds, publishes to
+PyPI and updates the Homebrew tap. First-time setup: [RELEASING.md](RELEASING.md).)**
 
 **Terminal alternative:** `mac-storage-dashboard run` (or, from a clone,
 `python3 mac_storage_dashboard/server.py`) starts the same server and opens

@@ -1,7 +1,10 @@
 #!/bin/bash
-# Builds a distributable zip of the self-contained app and prints its sha256 —
-# everything the Homebrew cask (packaging/homebrew/mac-storage-dashboard.rb)
-# needs. See RELEASING.md for the full release checklist.
+# Builds a distributable zip of the self-contained app and prints its sha256.
+#
+# You normally don't need this: releases are automated on version bumps
+# (.github/workflows/release.yml tags, builds, publishes to PyPI and updates
+# the Homebrew tap). This script is the manual fallback — build the zip
+# locally, e.g. when CI is unavailable or to verify a build before pushing.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -22,14 +25,13 @@ echo "Packaged: $ZIP"
 echo "sha256:   $SHA"
 echo
 cat <<'EOF'
-Next steps (once, until automated):
-  1. Tag and create a GitHub release:
+Manual release steps:
+  1. Publish to PyPI:
+       python3 -m build && python3 -m twine upload dist/*
+  2. Create a GitHub release and upload the zip:
        git tag v1.0.0 && git push origin v1.0.0
        gh release create v1.0.0 dist/Mac-Storage-Dashboard.zip \
-         --title "v1.0.0" --notes "See README"
-  2. In your homebrew tap repo, add/update Casks/mac-storage-dashboard.rb
-     using packaging/homebrew/mac-storage-dashboard.rb as the template —
-     set `version` and `sha256` to the values above.
-  3. Users install with:
-       brew install --cask <your-tap>/mac-storage-dashboard
+         --title "v1.0.0" --generate-notes
+  3. In your homebrew tap repo, update Casks/mac-storage-dashboard.rb
+     (version + sha256 above).
 EOF

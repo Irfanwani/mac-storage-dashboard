@@ -48,9 +48,13 @@ DATA="${DASHBOARD_DATA_DIR:-@@DATA_DEFAULT@@}"
 
 PY=""
 [ -n "$BAKED_PY" ] && [ -x "$BAKED_PY" ] && PY="$BAKED_PY"
-if [ -z "$PY" ] && command -v python3 >/dev/null 2>&1; then PY="$(command -v python3)"; fi
 if [ -z "$PY" ] && [ -x /opt/homebrew/bin/python3 ]; then PY=/opt/homebrew/bin/python3; fi
 if [ -z "$PY" ] && [ -x /usr/local/bin/python3 ]; then PY=/usr/local/bin/python3; fi
+if [ -z "$PY" ] && command -v python3 >/dev/null 2>&1; then
+  # /usr/bin/python3 is a stub unless the command line tools are installed
+  CAND="$(command -v python3)"
+  if [ "$CAND" != /usr/bin/python3 ] || xcode-select -p >/dev/null 2>&1; then PY="$CAND"; fi
+fi
 if [ -z "$PY" ]; then
   osascript >/dev/null 2>&1 <<'OSA'
 display dialog "Python 3 was not found on this Mac." & return & return & "Install Apple's command line tools with:" & return & return & "    xcode-select --install" & return & return & "then open this app again." buttons {"OK"} default button "OK" with title "Mac Storage Dashboard" with icon caution

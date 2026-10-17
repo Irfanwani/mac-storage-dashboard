@@ -1,0 +1,183 @@
+name: Release
+
+# Fully automated release, triggered by a version bump on main:
+#   1. bump __version__ in mac_storage_dashboard/__init__.py
+#   2. merge/push to main
+#   3. this workflow tags v<version>, builds the app, creates the GitHub
+#      release, publishes to PyPI and updates the Homebrew tap
+# Docs pushes are no-ops (the tag check below skips everything).
+# See RELEASING.md for the one-time setup (PyPI + tap token).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # manual run: retries/repairs, always proceeds
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      release: ${{ steps.read.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read the version and decide whether to release
+        id: read
+        run: |
+          VERSION="$(grep -oE '__version__ = "[^"]+"' mac_storage_dashboard/__init__.py \
+                     | head -1 | sed -E 's/.*"([^"]+)"/\1/')"
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not read __version__ from mac_storage_dashboard/__init__.py"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual run — proceeding with v$VERSION"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          elif git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "Tag v$VERSION already exists — nothing to release (docs push?)"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version v$VERSION — releasing"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  app-release:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: macos-latest
+    outputs:
+      sha256: ${{ steps.zip.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Regression test (cleanup engine)
+        run: python3 tests/cleanup_test.py
+      - name: Build the app
+        run: python3 -m mac_storage_dashboard app --out dist
+      - name: Smoke-test that the built app boots and serves
+        run: |
+          APP="dist/Mac Storage Dashboard.app"
+          DATA="$(mktemp -d)"
+          echo '{}' > "$DATA/data.json"   # skip the auto-scan in CI
+          if [ ! -f "$APP/Contents/Resources/AppIcon.icns" ]; then
+            echo "::warning::AppIcon.icns was not built — the app will use the default icon."
+          fi
+          env DASHBOARD_DATA_DIR="$DATA" "$APP/Contents/MacOS/applet"
+          for i in $(seq 1 20); do
+            if [ -f "$DATA/.server.port" ]; then break; fi
+            sleep 1
+          done
+          if [ ! -f "$DATA/.server.port" ]; then
+            echo "::error::The built app did not start within 20s"
+            cat "$DATA/launch.log" 2>/dev/null || true
+            exit 1
+          fi
+          PORT="$(cat "$DATA/.server.port")"
+          if ! curl -sf "http://127.0.0.1:$PORT/api/status" >/dev/null; then
+            echo "::error::The app started but did not answer on port $PORT"
+            cat "$DATA/launch.log" 2>/dev/null || true
+            exit 1
+          fi
+          curl -sf -X POST "http://127.0.0.1:$PORT/api/shutdown" >/dev/null || true
+          echo "App boots and serves OK (port $PORT)"
+      - name: Zip the app and hash it
+        id: zip
+        run: |
+          ditto -c -k --keepParent "dist/Mac Storage Dashboard.app" "dist/Mac-Storage-Dashboard.zip"
+          SHA="$(shasum -a 256 "dist/Mac-Storage-Dashboard.zip" | awk '{print $1}')"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "zip sha256: $SHA"
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="v${{ needs.version.outputs.version }}"
+          gh release view "$V" >/dev/null 2>&1 \
+            || gh release create "$V" --title "$V" --target "$GITHUB_SHA" --generate-notes
+          gh release upload "$V" "dist/Mac-Storage-Dashboard.zip" --clobber
+
+  pypi:
+    needs: [version, app-release]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # PyPI Trusted Publishing (no API token needed)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          python3 -m pip install --quiet --upgrade build
+          python3 -m build
+      - name: Check whether this version is already on PyPI
+        id: check
+        run: |
+          V="${{ needs.version.outputs.version }}"
+          if curl -sf "https://pypi.org/pypi/mac-storage-dashboard/$V/json" >/dev/null; then
+            echo "v$V is already on PyPI — skipping the upload."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      # Uses PyPI Trusted Publishing (one-time setup on pypi.org — see
+      # RELEASING.md). Prefer an API token instead? Set the PYPI_API_TOKEN
+      # secret and add:  with: { password: "${{ secrets.PYPI_API_TOKEN }}" }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: steps.check.outputs.exists == 'false'
+
+  homebrew:
+    needs: [version, app-release]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update the Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set — skipping the tap update (see RELEASING.md)."
+            exit 0
+          fi
+          V="${{ needs.version.outputs.version }}"
+          SHA="${{ needs.app-release.outputs.sha256 }}"
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          TAP="homebrew-tap"
+          URL="https://x-access-token:${TAP_TOKEN}@github.com/${OWNER}/${TAP}.git"
+          if ! git clone --quiet --depth 1 "$URL" tap 2>/dev/null; then
+            echo "Tap ${OWNER}/${TAP} not found — creating it"
+            GH_TOKEN="$TAP_TOKEN" gh repo create "${OWNER}/${TAP}" --public \
+              --description "Homebrew tap for Mac Storage Dashboard"
+            git clone --quiet --depth 1 "$URL" tap
+          fi
+          sed -e "s/REPLACE_WITH_VERSION/$V/" \
+              -e "s/REPLACE_WITH_SHA256_FROM_release.command/$SHA/" \
+              packaging/homebrew/mac-storage-dashboard.rb > tap/Casks/mac-storage-dashboard.rb
+          cd tap
+          git checkout -B main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/mac-storage-dashboard.rb
+          if git diff --cached --quiet; then
+            echo "Cask is already up to date."
+          else
+            git commit -m "mac-storage-dashboard $V"
+            git push origin main
+            echo "Tap updated with mac-storage-dashboard $V"
+          fi

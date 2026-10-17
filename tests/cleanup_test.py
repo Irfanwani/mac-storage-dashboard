@@ -171,7 +171,9 @@ def main():
         check("review dir deleted", not os.path.exists(T + "/junk/review"))
         check("outside sub dir deleted", not os.path.exists(OUT + "/sub"))
         check("important/keep.txt untouched", os.path.exists(T + "/important/keep.txt"))
-        check("System /Library/Updates still there (skipped)", os.path.exists("/Library/Updates"))
+        check("System /Library/Updates untouched (never deleted)",
+              not any(r.get("path") == "/Library/Updates" for r in s.get("results", [])),
+              s.get("results"))
         check("4 paths deleted ok", len([r for r in s.get("results", []) if r.get("ok")]) == 4, s.get("results"))
         check("freed > 0 bytes", s.get("freed", 0) > 0, s.get("freed"))
         sk = {x.get("id"): x.get("reason") for x in s.get("skipped", [])}

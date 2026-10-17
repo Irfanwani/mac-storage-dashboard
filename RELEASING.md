@@ -1,67 +1,87 @@
 # Releasing
 
-Two distribution channels, both hosted off the GitHub repo
-(`Irfanwani/mac-storage-dashboard`). Neither is automated yet — this file is the
-checklist.
+Releases are **automated** by [`.github/workflows/release.yml`](.github/workflows/release.yml).
+The only thing you do is bump the version.
 
-## 1. PyPI (the `pipx install mac-storage-dashboard` route)
+## The normal flow (2 steps)
 
-The package ships the scanner, server and CLI; `mac-storage-dashboard install` builds
-the app locally and drops it in `/Applications`, so no signing/notarization is
-involved for users.
+1. Bump the version — the single source of truth:
+
+   ```python
+   # mac_storage_dashboard/__init__.py
+   __version__ = "1.0.1"
+   ```
+
+   (The wheel metadata, `mac-storage-dashboard --version` and the app's
+   `CFBundleShortVersionString` all read this value.)
+
+2. Commit and push/merge to `main`.
+
+The **Release** workflow then, if tag `v<version>` doesn't exist yet:
+
+| Job | What it does |
+|---|---|
+| `version` | reads `__version__`, checks the tag; skips everything when the version was already released (docs pushes are no-ops) |
+| `app-release` | runs the cleanup regression test, builds the app on macOS, smoke-tests that it boots and serves, zips it, creates the GitHub release (tag `v<version>` + auto-generated notes) and uploads `Mac-Storage-Dashboard.zip` |
+| `pypi` | builds sdist + wheel, publishes to PyPI (skips if the version is already there, so retries are safe) |
+| `homebrew` | writes `Casks/mac-storage-dashboard.rb` (version + sha256) into the tap repo and pushes |
+
+## One-time setup
+
+- **PyPI** — via Trusted Publishing (no secrets stored):
+
+  pypi.org → *Your projects* → **Publishing** → *Add a pending publisher* with:
+
+  | Field | Value |
+  |---|---|
+  | PyPI project name | `mac-storage-dashboard` |
+  | Owner | `Irfanwani` |
+  | Repository name | `mac-storage-dashboard` |
+  | Workflow name | `release.yml` |
+  | Environment name | *(leave blank)* |
+
+  Prefer an API token? Create one, add it as the `PYPI_API_TOKEN` secret, and
+  uncomment the `with: password:` line in the `pypi` job.
+
+- **Homebrew tap** — add a repo secret `HOMEBREW_TAP_TOKEN`:
+
+  - Classic PAT with the `repo` scope (also lets the workflow create
+    `Irfanwani/homebrew-tap` on the first release), **or**
+  - fine-grained PAT with *Contents: Read and write* on `homebrew-tap`
+    (create the tap repo yourself first).
+
+  Without the secret the tap job skips with a warning; everything else still
+  releases.
+
+- Nothing else — the GitHub release uses the built-in `GITHUB_TOKEN`.
+
+After the first successful tap update, users install with:
 
 ```bash
-# once: create an API token at https://pypi.org/manage/account/token/
-python3 -m pip install --user --upgrade build twine
-
-# every release
-python3 -m build                      # writes dist/*.whl and dist/*.tar.gz
-python3 -m twine upload dist/*        # or: python3 -m twine upload --repository testpypi dist/*  (rehearse first)
+brew install --cask irfanwani/tap/mac-storage-dashboard
 ```
 
-Test the result in a clean environment:
+## First run note
+
+`v1.0.0` doesn't exist yet, so the first push (or merge) to `main` after this
+workflow lands will release the current `__version__`. If PyPI/tap aren't
+configured yet: the PyPI job fails (loudly) while GitHub Release + Homebrew
+setup still run — configure the one-time setup above first, or temporarily
+work on a branch.
+
+## Retries
+
+Every job is idempotent (release update, PyPI skip-if-exists, cask overwrite):
+
+- Re-run a failed run from the Actions tab (**Re-run failed jobs**), or
+- **Release → Run workflow** on `main` — a manual run always proceeds, even
+  when the tag already exists.
+
+## Manual fallback (no CI)
 
 ```bash
-pipx install mac-storage-dashboard
-mac-storage-dashboard install
-mac-storage-dashboard uninstall   # clean up afterwards if you were just testing
+./release.command                     # builds + zips the app, prints the sha256
+python3 -m build && python3 -m twine upload dist/*
+gh release create v1.0.1 dist/Mac-Storage-Dashboard.zip --title v1.0.1 --generate-notes
+# then hand-edit the cask in the tap with the new version + sha and push
 ```
-
-## 2. Homebrew cask (the `brew install --cask` route)
-
-The cask distributes the *prebuilt* app zip from GitHub Releases. Gatekeeper is fine
-with ad-hoc signing here because Homebrew removes the quarantine flag on install.
-
-```bash
-./release.command                 # builds the app, writes dist/Mac-Storage-Dashboard.zip, prints sha256
-git tag v1.0.0 && git push origin v1.0.0
-gh release create v1.0.0 dist/Mac-Storage-Dashboard.zip --title v1.0.0 --notes "…"
-```
-
-Then, in your tap repo (e.g. `Irfanwani/homebrew-tap`, create it once):
-
-1. Copy `packaging/homebrew/mac-storage-dashboard.rb` to `Casks/mac-storage-dashboard.rb`.
-2. Set `version` to the tag (e.g. `1.0.0`) and `sha256` to the hash printed by
-   `release.command`.
-3. Commit and push the tap.
-
-Users install with:
-
-```bash
-brew install --cask irfanwani/tap/mac-storage-dashboard   # app lands in /Applications
-```
-
-## Versioning
-
-`mac_storage_dashboard/__init__.py` (`__version__`) is the single source of truth —
-the wheel metadata, the built app's `CFBundleShortVersionString` and
-`mac-storage-dashboard --version` all read it. Bump it, commit, then follow either
-channel above with a matching tag.
-
-## Notes
-
-- The repo is not signed with an Apple Developer certificate. Locally built apps
-  (PyPI path) and Homebrew-installed apps both avoid the "unidentified developer"
-  dialog; a *downloaded* zip from anywhere else would not.
-- Full Disk Access is per-app: after reinstalling the app, macOS may ask for the
-  permission again (System Settings → Privacy & Security → Full Disk Access).
