@@ -178,8 +178,18 @@ jobs:
             echo "Tap ${OWNER}/${TAP} not found — creating it"
             GH_TOKEN="$TAP_TOKEN" gh repo create "${OWNER}/${TAP}" --public \
               --description "Homebrew tap for Mac Storage Dashboard"
-            git clone --quiet --depth 1 "$URL" tap
+            for attempt in 1 2 3; do
+              # brand-new repo — retry in case it isn't queryable yet
+              if git clone --quiet --depth 1 "$URL" tap 2>/dev/null; then break; fi
+              echo "clone attempt $attempt failed — retrying"
+              sleep 3
+            done
           fi
+          if [ ! -d tap/.git ]; then
+            echo "::error::could not clone ${OWNER}/${TAP}"
+            exit 1
+          fi
+          mkdir -p tap/Casks
           sed -e "s/REPLACE_WITH_VERSION/$V/" \
               -e "s/REPLACE_WITH_SHA256_FROM_release.command/$SHA/" \
               packaging/homebrew/mac-storage-dashboard.rb > tap/Casks/mac-storage-dashboard.rb
