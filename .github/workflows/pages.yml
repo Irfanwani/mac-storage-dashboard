@@ -1,0 +1,64 @@
+name: Website
+
+# Builds site/ and publishes it to GitHub Pages.
+#
+# One-time setup: repository Settings → Pages → Build and deployment →
+# Source: "GitHub Actions". Without that, actions/configure-pages fails.
+#
+# Redeploys when the site changes, when the screenshots it uses change, or
+# when the version (mac_storage_dashboard/__init__.py) changes — the footer
+# shows the deployed version. Manual runs: Actions → Website → Run workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/*.png"
+      - "mac_storage_dashboard/favicon.svg"
+      - "mac_storage_dashboard/__init__.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the static site
+        run: |
+          VERSION="$(grep -oE '__version__ = "[^"]+"' mac_storage_dashboard/__init__.py \
+                     | head -1 | sed -E 's/.*"([^"]+)"/\1/')"
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read __version__"
+            exit 1
+          fi
+          cp mac_storage_dashboard/favicon.svg site/favicon.svg
+          mkdir -p site/shots
+          cp docs/*.png site/shots/
+          sed -i "s/__VERSION__/$VERSION/g" site/index.html
+          if grep -q "__VERSION__" site/index.html; then
+            echo "::error::unreplaced __VERSION__ placeholder in site/index.html"
+            exit 1
+          fi
+          echo "Prepared the site for v$VERSION"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

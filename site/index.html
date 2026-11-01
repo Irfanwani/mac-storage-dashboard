@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac Storage Dashboard — know where your disk went</title>
+<meta name="description" content="A local, privacy-first macOS storage dashboard: treemap explorer, safe/review junk tiers, and cleanup you approve item by item. Open source, MIT.">
+<meta name="theme-color" content="#f3f4f6">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="canonical" href="https://irfanwani.github.io/mac-storage-dashboard/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Mac Storage Dashboard — know where your disk went">
+<meta property="og:description" content="Treemap your whole Mac, split junk into safe-to-remove and review-first, and clean up with explicit approval. Local-only, open source.">
+<meta property="og:url" content="https://irfanwani.github.io/mac-storage-dashboard/">
+<meta property="og:image" content="https://irfanwani.github.io/mac-storage-dashboard/shots/category-view.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{
+    --bg:#f3f4f6; --card:#fff; --line:#e5e7eb; --ink:#111827; --ink2:#6b7280;
+    --green:#16a34a; --green-bg:#ecfdf3; --amber:#b45309; --amber-bg:#fef7e6;
+    --blue:#2563eb;
+    --c1:#ced1f7; --c2:#fbdcc2; --c3:#f9cfb8; --c4:#e8e9eb; --c5:#ccefee;
+    --c6:#f9c9d2; --c7:#d3e2fb; --c8:#e6e1f5; --c9:#ececef;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --shadow:0 1px 2px rgba(16,24,40,.05);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  img{max-width:100%}
+  .skip{position:absolute;left:-9999px}
+  .skip:focus{left:16px;top:12px;background:#fff;padding:8px 12px;border-radius:8px;z-index:99}
+
+  /* nav */
+  .nav{position:sticky;top:0;z-index:20;background:rgba(243,244,246,.85);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid rgba(229,231,235,.8)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:62px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+  .brand:hover{text-decoration:none}
+  .brand svg{width:28px;height:28px;border-radius:8px;flex:none}
+  .links{display:flex;align-items:center;gap:22px;font-size:14px}
+  .links a{color:var(--ink2);font-weight:600}
+  .links a:hover{color:var(--ink);text-decoration:none}
+  .links .gh{border:1px solid var(--line);background:#fff;padding:7px 12px;border-radius:9px;color:var(--ink)}
+
+  /* hero */
+  .hero{display:grid;grid-template-columns:1.02fr 1fr;gap:56px;align-items:center;padding:72px 24px 64px}
+  .eyebrow{font:600 11.5px/1 var(--mono);letter-spacing:.15em;color:var(--ink2);text-transform:uppercase;margin:0 0 18px}
+  h1{font-size:clamp(2.5rem,4.6vw,3.9rem);line-height:1.02;letter-spacing:-.035em;margin:0 0 20px;font-weight:800}
+  .lede{font-size:18px;color:var(--ink2);margin:0 0 28px;max-width:52ch}
+  .lede em{color:var(--ink);font-style:normal;font-weight:600}
+  .hero-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .cmd{display:flex;align-items:center;gap:10px;background:#0f172a;border-radius:12px;padding:10px 12px 10px 16px;box-shadow:var(--shadow);max-width:100%;min-width:0}
+  .cmd code{flex:1 1 auto;min-width:0;font:13px/1.4 var(--mono);color:#e2e8f0;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+  .cmd code::-webkit-scrollbar{display:none}
+  .cp{flex:none;border:0;background:#1e293b;color:#cbd5e1;font:600 12px/1 var(--mono);padding:8px 12px;border-radius:8px;cursor:pointer}
+  .cp:hover{background:#334155;color:#fff}
+  .cp.copied{background:#065f46;color:#d1fae5}
+  .btn{display:inline-flex;align-items:center;gap:8px;border-radius:10px;padding:10px 16px;font-weight:600;font-size:14px;text-decoration:none}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .btn.ghost:hover{background:#f9fafb;text-decoration:none}
+  .fineprint{font-size:13px;color:var(--ink2);margin:14px 0 0}
+
+  /* screenshots */
+  .shot{margin:0;background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 24px 60px rgba(16,24,40,.14)}
+  .chrome{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);background:#fbfcfd}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .dot.r{background:#fca5a5}.dot.y{background:#fcd34d}.dot.g{background:#86efac}
+  .addr{margin-left:10px;font:500 11px/1 var(--mono);color:var(--ink2);background:#f3f4f6;border:1px solid var(--line);padding:5px 9px;border-radius:99px}
+  .shot img{display:block;width:100%;height:auto}
+  .hero-shot{align-self:center}
+
+  /* sections */
+  section.block{padding:60px 24px}
+  .block-head{max-width:660px;margin-bottom:32px}
+  .block-head h2{font-size:clamp(1.6rem,2.6vw,2.2rem);letter-spacing:-.02em;margin:0 0 10px}
+  .block-head p{color:var(--ink2);margin:0}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .feature{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+  .feature h3{font-size:15.5px;margin:14px 0 6px;letter-spacing:-.01em}
+  .feature p{margin:0;font-size:14px;color:var(--ink2)}
+  .tile-icon{width:34px;height:34px;border-radius:9px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;padding:3px;background:#fff;border:1px solid var(--line)}
+  .tile-icon i{border-radius:2px;display:block;background:var(--c4)}
+  .tile-icon .safe{background:repeating-linear-gradient(135deg,#b7e3c3 0 2px,#fbfffb 2px 5px)}
+  .tile-icon .review{background:repeating-linear-gradient(135deg,#f0da96 0 2px,#fffef8 2px 5px)}
+
+  /* trust */
+  .trust{background:#111827;color:#e5e7eb;border-radius:20px;padding:38px;display:grid;grid-template-columns:1.05fr .95fr;gap:34px;align-items:center}
+  .trust h2{color:#fff;font-size:clamp(1.5rem,2.4vw,2rem);margin:0 0 10px;letter-spacing:-.02em}
+  .trust .lead{color:#9ca3af;margin:0;font-size:15px}
+  .trust ul{list-style:none;margin:0;padding:0;display:grid;gap:15px}
+  .trust li{display:flex;gap:12px;font-size:14.5px;color:#d1d5db}
+  .trust li b{color:#fff;display:block;font-size:14.5px}
+  .check{flex:none;width:20px;height:20px;border-radius:6px;background:#065f46;color:#d1fae5;display:grid;place-items:center;font-size:12px;margin-top:2px}
+
+  /* shots */
+  .shots{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .shots figure{margin:0}
+  .shots figure:first-child{grid-column:1/-1}
+  .shots img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow)}
+  .shots figcaption{font-size:12.5px;color:var(--ink2);margin-top:9px}
+  .shots figcaption b{color:var(--ink)}
+
+  /* install */
+  .install-grid{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:16px;align-items:start}
+  .install-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow);min-width:0}
+  .install-card h3{margin:0 0 4px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .badge{font:700 10px/1 var(--mono);letter-spacing:.08em;color:var(--green);background:var(--green-bg);padding:5px 7px;border-radius:6px;text-transform:uppercase}
+  .install-card>p{font-size:13px;color:var(--ink2);margin:0 0 12px}
+  .install-card .cmd{padding:8px 8px 8px 12px;border-radius:9px}
+  .install-card .cmd+.cmd{margin-top:8px}
+  .install-card .cmd code{font-size:11.5px;white-space:normal;overflow-wrap:anywhere;line-height:1.55}
+  .note{display:flex;gap:12px;background:var(--amber-bg);border:1px solid #f5e3b8;border-radius:12px;padding:14px 16px;font-size:13.5px;color:#7c4a03;margin-top:16px}
+  .note b{display:block;margin-bottom:3px}
+  .note code{font:12px var(--mono);background:#fff;border:1px solid #f0dfb5;border-radius:6px;padding:2px 6px;word-break:break-all}
+  .note .ico{flex:none;font-size:15px;line-height:1.4}
+
+  /* footer */
+  footer{border-top:1px solid var(--line);margin-top:20px;padding:26px 0 40px;color:var(--ink2);font-size:13px}
+  .foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center}
+  .foot .links{gap:16px;font-size:13px}
+  .ver{font:600 11px/1 var(--mono);color:var(--ink2);background:#fff;border:1px solid var(--line);border-radius:99px;padding:5px 9px}
+
+  @media (max-width:960px){
+    .hero{grid-template-columns:1fr;gap:38px;padding-top:48px}
+    .grid{grid-template-columns:repeat(2,1fr)}
+    .trust{grid-template-columns:1fr;padding:30px}
+    .shots{grid-template-columns:1fr 1fr}
+    .install-grid{grid-template-columns:1fr}
+  }
+  @media (max-width:620px){
+    .grid{grid-template-columns:1fr}
+    .shots{grid-template-columns:1fr}
+    .links a:not(.gh){display:none}
+    section.block{padding:44px 24px}
+    .hero .cmd code{white-space:normal;overflow-wrap:anywhere;line-height:1.5}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top" aria-label="Mac Storage Dashboard — home">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="14" fill="#111827"/>
+        <rect x="10" y="10" width="26" height="44" rx="4" fill="#e5e7eb"/>
+        <rect x="40" y="10" width="14" height="20" rx="4" fill="#9ca3af"/>
+        <rect x="40" y="34" width="14" height="20" rx="4" fill="#f59e0b"/>
+      </svg>
+      <span>Mac Storage Dashboard</span>
+    </a>
+    <nav class="links" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#screens">Screenshots</a>
+      <a href="#install">Install</a>
+      <a class="gh" href="https://github.com/Irfanwani/mac-storage-dashboard">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero wrap" id="top">
+    <div class="hero-copy">
+      <p class="eyebrow">Local-first · Open source · macOS</p>
+      <h1>Know exactly where your disk went.</h1>
+      <p class="lede">A dashboard that maps your whole Mac: a treemap of every folder, junk split into <em>safe to remove</em> and <em>review first</em>, and cleanup you approve item by item — never automatically.</p>
+      <div class="hero-actions">
+        <div class="cmd">
+          <code>brew install --cask irfanwani/tap/mac-storage-dashboard</code>
+          <button type="button" class="cp" data-copy="brew install --cask irfanwani/tap/mac-storage-dashboard" aria-label="Copy Homebrew install command">Copy</button>
+        </div>
+        <a class="btn ghost" href="#install">Other install options</a>
+      </div>
+      <p class="fineprint">No account · No telemetry · MIT licensed</p>
+    </div>
+    <figure class="shot hero-shot">
+      <div class="chrome" aria-hidden="true">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="addr">127.0.0.1 — local only</span>
+      </div>
+      <img src="shots/category-view.png" alt="Mac Storage Dashboard treemap view, mapping the disk by category" width="1440" height="1200">
+    </figure>
+  </section>
+
+  <section class="block wrap" id="features">
+    <div class="block-head">
+      <p class="eyebrow">The dashboard</p>
+      <h2>Built like a map, not a menu.</h2>
+      <p>Point it at your disk. It reports what's actually allocated, groups it by category, and shows you where the weight is hiding.</p>
+    </div>
+    <div class="grid">
+      <article class="feature">
+        <span class="tile-icon" aria-hidden="true"><i style="background:var(--c1)"></i><i style="background:var(--c5)"></i><i style="background:var(--c2)"></i><i style="background:var(--c7)"></i></span>
+        <h3>Treemap, not a list</h3>
+        <p>Every folder becomes a tile proportional to its size. Drill from the whole disk down to a single cache folder in three clicks.</p>
+      </article>
+      <article class="feature">
+        <span class="tile-icon" aria-hidden="true"><i class="safe"></i><i class="review"></i><i style="background:var(--c4)"></i><i style="background:var(--c8)"></i></span>
+        <h3>Junk in two tiers</h3>
+        <p>Safe means regenerable — caches, logs, build artifacts. Review means your data. Hatched tiles show exactly where reclaimable space sits.</p>
+      </article>
+      <article class="feature">
+        <span class="tile-icon" aria-hidden="true"><i style="background:var(--c6)"></i><i style="background:var(--c3)"></i><i style="background:var(--c9)"></i><i style="background:var(--c1)"></i></span>
+        <h3>Nothing is automatic</h3>
+        <p>Recommendations arrive with checkboxes. The app never deletes on its own, and irreversible actions always demand explicit confirmation.</p>
+      </article>
+      <article class="feature">
+        <span class="tile-icon" aria-hidden="true"><i style="background:var(--c5)"></i><i style="background:var(--c7)"></i><i style="background:var(--c3)"></i><i style="background:var(--c6)"></i></span>
+        <h3>In-app cleanup or script</h3>
+        <p>Delete reviewed items right in the dashboard — each one re-validated by id just before removal — or copy the generated shell script and run it yourself.</p>
+      </article>
+      <article class="feature">
+        <span class="tile-icon" aria-hidden="true"><i style="background:var(--c2)"></i><i style="background:var(--c8)"></i><i style="background:var(--c5)"></i><i style="background:var(--c4)"></i></span>
+        <h3>Honest numbers</h3>
+        <p>A pure-Python scanner counts allocated blocks and de-duplicates hardlinks, so totals match what Finder reports — even where <code>du</code> quietly fails under Full Disk Access.</p>
+      </article>
+      <article class="feature">
+        <span class="tile-icon" aria-hidden="true"><i style="background:var(--c7)"></i><i style="background:var(--c1)"></i><i style="background:var(--c8)"></i><i style="background:var(--c2)"></i></span>
+        <h3>Permissions, explained</h3>
+        <p>The app requests Full Disk Access itself — so macOS attributes it to the app, not your terminal — and names the folders it still can't see.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="block wrap">
+    <div class="trust">
+      <div>
+        <h2>Your disk data never leaves this Mac.</h2>
+        <p class="lead">No accounts, no sync, no analytics. The dashboard is a page served on your own loopback interface, and it stops when you click Stop.</p>
+      </div>
+      <ul>
+        <li><span class="check" aria-hidden="true">✓</span><span><b>Local by construction</b>Everything runs at 127.0.0.1 from the app you installed. There is no cloud service to opt out of.</span></li>
+        <li><span class="check" aria-hidden="true">✓</span><span><b>Safe by refusal</b>Protected system paths are blocked, sudo-only items are handed to you as a script instead, and every in-app deletion is re-checked right before it happens.</span></li>
+        <li><span class="check" aria-hidden="true">✓</span><span><b>Honest about permissions</b>One click to the Full Disk Access pane, plus a clear list of what's missing — instead of silently reporting zero.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="block wrap" id="screens">
+    <div class="block-head">
+      <p class="eyebrow">Screenshots</p>
+      <h2>The whole disk, one screen.</h2>
+      <p>Cleanup recommendations, the deletion confirmation, and the permission check.</p>
+    </div>
+    <div class="shots">
+      <figure>
+        <img src="shots/cleanup-view.png" alt="Cleanup view listing junk recommendations grouped into safe and review tiers" loading="lazy" width="1440" height="1200">
+        <figcaption><b>Cleanup view</b> — recommendations by tier, with per-item checkboxes and a copyable script.</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/delete-confirm.png" alt="Confirmation dialog before permanently deleting selected items" loading="lazy" width="1440" height="1200">
+        <figcaption><b>Delete confirmation</b> — permanent removal always asks first, and shows what will be freed.</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/permission-modal.png" alt="Full Disk Access guidance modal explaining what the app cannot scan" loading="lazy" width="1440" height="1200">
+        <figcaption><b>Full Disk Access</b> — the app asks for itself and names the folders still hidden.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="block wrap" id="install">
+    <div class="block-head">
+      <p class="eyebrow">Install</p>
+      <h2>Two commands, or one.</h2>
+      <p>A self-contained macOS app — move it anywhere, including /Applications. Needs Python 3.9+; runs on Apple silicon and Intel.</p>
+    </div>
+    <div class="install-grid">
+      <article class="install-card">
+        <h3>Homebrew cask <span class="badge">Recommended</span></h3>
+        <p>Installs the app straight into /Applications and updates with <code>brew upgrade</code>.</p>
+        <div class="cmd">
+          <code>brew install --cask irfanwani/tap/mac-storage-dashboard</code>
+          <button type="button" class="cp" data-copy="brew install --cask irfanwani/tap/mac-storage-dashboard" aria-label="Copy Homebrew install command">Copy</button>
+        </div>
+      </article>
+      <article class="install-card">
+        <h3>PyPI (pipx)</h3>
+        <p>Builds the app locally and copies it into /Applications — no Gatekeeper prompt.</p>
+        <div class="cmd">
+          <code>pipx install mac-storage-dashboard</code>
+          <button type="button" class="cp" data-copy="pipx install mac-storage-dashboard" aria-label="Copy pipx install command">Copy</button>
+        </div>
+        <div class="cmd">
+          <code>mac-storage-dashboard install</code>
+          <button type="button" class="cp" data-copy="mac-storage-dashboard install" aria-label="Copy app install command">Copy</button>
+        </div>
+      </article>
+      <article class="install-card">
+        <h3>From source</h3>
+        <p>Pick up the latest main branch and build the app yourself.</p>
+        <div class="cmd">
+          <code>git clone https://github.com/Irfanwani/mac-storage-dashboard.git</code>
+          <button type="button" class="cp" data-copy="git clone https://github.com/Irfanwani/mac-storage-dashboard.git" aria-label="Copy clone command">Copy</button>
+        </div>
+        <div class="cmd">
+          <code>cd mac-storage-dashboard &amp;&amp; ./build_app.command</code>
+          <button type="button" class="cp" data-copy="cd mac-storage-dashboard && ./build_app.command" aria-label="Copy build command">Copy</button>
+        </div>
+      </article>
+    </div>
+    <div class="note" role="note">
+      <span class="ico" aria-hidden="true">▲</span>
+      <div>
+        <b>First launch with Homebrew</b>
+        macOS will refuse the app because it isn't notarized by Apple yet. Approve it once via
+        System Settings → Privacy &amp; Security → “Open Anyway”, or run
+        <code>xattr -dr com.apple.quarantine "/Applications/Mac Storage Dashboard.app"</code>.
+        Repeat after each <code>brew upgrade</code>. The PyPI route builds locally and skips this.
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>© 2026 Mac Storage Dashboard contributors · MIT licensed</div>
+    <nav class="links" aria-label="Footer">
+      <a href="https://github.com/Irfanwani/mac-storage-dashboard">GitHub</a>
+      <a href="https://github.com/Irfanwani/mac-storage-dashboard/releases">Releases</a>
+      <a href="https://github.com/Irfanwani/mac-storage-dashboard/issues">Issues</a>
+      <a href="https://github.com/Irfanwani/mac-storage-dashboard/blob/main/LICENSE">License</a>
+      <span class="ver">v__VERSION__</span>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      var done = function () {
+        var old = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        btn.classList.add('copied');
+        setTimeout(function () { btn.textContent = old; btn.classList.remove('copied'); }, 1600);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+      } else {
+        fallback();
+      }
+      function fallback() {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove();
+        done();
+      }
+    });
+  });
+</script>
+</body>
+</html>

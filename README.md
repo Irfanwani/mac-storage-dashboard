@@ -5,6 +5,8 @@ reclaimable space into *safe to remove* vs *review first*, and lets you clean up
 **with full control** — either by copying a reviewed script, or with explicit,
 confirmed deletion right in the app.
 
+**[Website](https://irfanwani.github.io/mac-storage-dashboard/)** · [Quick start](#quick-start) · [Releases](https://github.com/Irfanwani/mac-storage-dashboard/releases) · [Website source](site/)
+
 ![Category view](docs/category-view.png)
 
 ## Quick start
@@ -209,6 +211,8 @@ build_app.command        builds dist/Mac Storage Dashboard.app from a clone
 run.command              double-click launcher (runs in Terminal)
 release.command          zips the app + prints the sha256 for the Homebrew cask
 packaging/homebrew/      Homebrew cask template
+site/                    product website (static HTML; deployed to GitHub Pages)
+.github/workflows/       release pipeline + website deployment
 tests/                   sandbox integration test for the cleanup engine
 docs/                    screenshots
 ```
